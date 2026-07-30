@@ -11,5 +11,5 @@
 -keep class com.pichillilorenzo.flutter_inappwebview.** { *; }
 
 # local_auth Proguard Rules
--keep class class androidx.biometric.** { *; }
+-keep class androidx.biometric.** { *; }
 -dontwarn androidx.biometric.**
