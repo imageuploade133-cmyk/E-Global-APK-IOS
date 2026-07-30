@@ -235,7 +235,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                       },
                       onReceivedError: (controller, request, error) {
                         _pullToRefreshController?.endRefreshing();
-                        webViewNotifier.setError(true, error.description);
+                        // Only show the full-page error overlay if it is the main frame that failed to load.
+                        // This prevents minor sub-resource load failures (e.g., ad scripts, analytics, missing icons, font issues)
+                        // from interrupting the user experience with a blocking error screen.
+                        if (request.isForMainFrame ?? true) {
+                          webViewNotifier.setError(true, error.description);
+                        }
                       },
                       onPermissionRequest: (controller, request) async {
                         return await _handlePermissionRequest(controller, request);
