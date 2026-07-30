@@ -35,9 +35,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
     final secureStorage = ref.read(secureStorageProvider);
     final biometrics = ref.read(biometricServiceProvider);
 
-    // Initial delay for splash effect
-    await Future.delayed(const Duration(seconds: 3));
-
     final isConnected = await connectivity.isConnected;
     if (!isConnected) {
       if (mounted) {
