@@ -27,7 +27,6 @@ class BiometricsServiceImpl implements BiometricsService {
     try {
       return await _auth.authenticate(
         localizedReason: 'Authenticate to access E-Global Wallet securely',
-        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
     } on PlatformException {
       return false;
