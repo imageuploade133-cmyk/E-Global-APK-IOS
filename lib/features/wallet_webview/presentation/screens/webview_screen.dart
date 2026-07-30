@@ -155,11 +155,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     }
   }
 
-  Future<bool> _onWillPop() async {
+  Future<void> _handlePopInvocation(bool didPop) async {
+    if (didPop) return;
+
     if (_webViewController != null && await _webViewController!.canGoBack()) {
       await _webViewController!.goBack();
-      return false;
+      return;
     }
+
+    if (!mounted) return;
 
     final shouldExit = await showDialog<bool>(
       context: context,
@@ -180,7 +184,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       ),
     );
 
-    return shouldExit ?? false;
+    if (shouldExit ?? false) {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    }
   }
 
   @override
@@ -188,8 +196,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     final webViewState = ref.watch(webViewProvider);
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        await _handlePopInvocation(didPop);
+      },
       child: Scaffold(
         backgroundColor: Colors.white,
         body: SafeArea(
