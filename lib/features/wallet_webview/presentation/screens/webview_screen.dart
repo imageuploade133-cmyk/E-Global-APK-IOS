@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -32,6 +35,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   @override
   void initState() {
     super.initState();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _initPullToRefresh();
   }
 
@@ -108,9 +112,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       final total = response.contentLength;
       int received = 0;
 
-      final directory = await getApplicationDocumentsDirectory();
-      final filePath = '${directory.path}/$fileName';
+      final dirPath = await _getDownloadDirectoryPath();
+      final filePath = '$dirPath/$fileName';
       final file = File(filePath);
+
+      // Create directories if they don't exist
+      await file.parent.create(recursive: true);
 
       await response.listen((List<int> chunk) {
         bytes.addAll(chunk);
@@ -152,6 +159,67 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
           SnackBar(content: Text('Download failed: $e')),
         );
       }
+    }
+  }
+
+  Future<String> _getDownloadDirectoryPath() async {
+    Directory? directory;
+    if (Platform.isAndroid) {
+      directory = Directory('/storage/emulated/0/Download');
+      if (!await directory.exists()) {
+        directory = await getExternalStorageDirectory();
+      }
+    } else if (Platform.isMacOS) {
+      directory = await getDownloadsDirectory();
+    } else {
+      directory = await getApplicationDocumentsDirectory();
+    }
+    return directory?.path ?? (await getApplicationDocumentsDirectory()).path;
+  }
+
+  Future<void> _handleShare(String text) async {
+    try {
+      await Share.share(text, subject: 'E-Global Wallet Receipt');
+    } catch (e) {
+      AppLogger.e('Error sharing text', e);
+    }
+  }
+
+  Future<void> _handleBase64Share(String base64Data, String fileName) async {
+    try {
+      final cleanBase64 = base64Data.contains(',') ? base64Data.split(',').last : base64Data;
+      final bytes = base64.decode(cleanBase64);
+
+      final tempDir = await getTemporaryDirectory();
+      final tempPath = '${tempDir.path}/$fileName';
+      final file = File(tempPath);
+      await file.writeAsBytes(bytes);
+
+      await Share.shareXFiles([XFile(tempPath)], text: 'E-Global Wallet Receipt');
+    } catch (e) {
+      AppLogger.e('Error sharing base64 receipt', e);
+    }
+  }
+
+  Future<void> _handleUrlShare(String url, String fileName) async {
+    try {
+      final uri = Uri.parse(url);
+      final client = HttpClient();
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      final bytes = <int>[];
+      await response.listen((chunk) {
+        bytes.addAll(chunk);
+      }).asFuture();
+
+      final tempDir = await getTemporaryDirectory();
+      final tempPath = '${tempDir.path}/$fileName';
+      final file = File(tempPath);
+      await file.writeAsBytes(bytes);
+
+      await Share.shareXFiles([XFile(tempPath)], text: 'E-Global Wallet Receipt');
+    } catch (e) {
+      AppLogger.e('Error sharing URL receipt', e);
     }
   }
 
@@ -229,9 +297,70 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         safeBrowsingEnabled: true,
                         mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
                       ),
+                      shouldOverrideUrlLoading: (controller, navigationAction) async {
+                        final uri = navigationAction.request.url;
+                        if (uri != null) {
+                          final urlString = uri.toString();
+                          if (urlString.startsWith('share:') || urlString.startsWith('eglobal://share')) {
+                            final queryParams = uri.queryParameters;
+                            final text = queryParams['text'] ?? queryParams['data'] ?? urlString.replaceFirst('share:', '');
+                            await _handleShare(Uri.decodeComponent(text));
+                            return NavigationActionPolicy.CANCEL;
+                          }
+                        }
+                        return NavigationActionPolicy.ALLOW;
+                      },
                       pullToRefreshController: _pullToRefreshController,
                       onWebViewCreated: (controller) {
                         _webViewController = controller;
+
+                        // Expose generic 'share' handler to the web app
+                        controller.addJavaScriptHandler(
+                          handlerName: 'share',
+                          callback: (args) async {
+                            if (args.isNotEmpty) {
+                              final shareData = args[0];
+                              if (shareData is String) {
+                                await _handleShare(shareData);
+                              } else if (shareData is Map) {
+                                final text = shareData['text'] as String?;
+                                final url = shareData['url'] as String?;
+                                final base64Data = shareData['base64'] as String?;
+                                final fileName = shareData['fileName'] as String?;
+
+                                if (base64Data != null) {
+                                  await _handleBase64Share(base64Data, fileName ?? 'receipt.png');
+                                } else if (url != null) {
+                                  await _handleUrlShare(url, fileName ?? 'receipt.png');
+                                } else if (text != null) {
+                                  await _handleShare(text);
+                                }
+                              }
+                            }
+                          },
+                        );
+
+                        // Expose receipt-specific 'shareReceipt' handler to the web app
+                        controller.addJavaScriptHandler(
+                          handlerName: 'shareReceipt',
+                          callback: (args) async {
+                            if (args.isNotEmpty) {
+                              final receiptData = args[0];
+                              if (receiptData is String) {
+                                await _handleShare(receiptData);
+                              } else if (receiptData is Map) {
+                                final text = receiptData['text'] as String?;
+                                final base64 = receiptData['base64'] as String?;
+                                final fileName = receiptData['fileName'] as String?;
+                                if (base64 != null) {
+                                  await _handleBase64Share(base64, fileName ?? 'receipt.pdf');
+                                } else if (text != null) {
+                                  await _handleShare(text);
+                                }
+                              }
+                            }
+                          },
+                        );
                       },
                       onLoadStart: (controller, url) {
                         webViewNotifier.setLoading(true);
