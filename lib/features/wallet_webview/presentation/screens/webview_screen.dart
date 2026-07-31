@@ -12,7 +12,6 @@ import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
 import 'package:wallet/core/utils/logger.dart';
-import '../widgets/webview_loader.dart';
 import '../widgets/webview_error_overlay.dart';
 import '../widgets/download_progress_bar.dart';
 import '../controllers/webview_controller.dart';
@@ -26,7 +25,6 @@ class WebviewScreen extends ConsumerStatefulWidget {
 
 class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   InAppWebViewController? _webViewController;
-  PullToRefreshController? _pullToRefreshController;
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -36,24 +34,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    _initPullToRefresh();
-  }
-
-  void _initPullToRefresh() {
-    _pullToRefreshController = PullToRefreshController(
-      settings: PullToRefreshSettings(
-        color: AppColors.primary,
-      ),
-      onRefresh: () async {
-        if (Platform.isAndroid) {
-          _webViewController?.reload();
-        } else if (Platform.isIOS || Platform.isMacOS) {
-          _webViewController?.loadUrl(
-            urlRequest: URLRequest(url: await _webViewController?.getUrl()),
-          );
-        }
-      },
-    );
   }
 
   Future<PermissionResponse?> _handlePermissionRequest(
@@ -276,12 +256,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
             children: [
               Column(
                 children: [
-                  if (webViewState.progress < 1.0 && webViewState.isLoading)
-                    LinearProgressIndicator(
-                      value: webViewState.progress,
-                      backgroundColor: Colors.grey[200],
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
-                    ),
                   Expanded(
                     child: InAppWebView(
                       initialUrlRequest: URLRequest(url: WebUri(AppStrings.baseUrl)),
@@ -296,6 +270,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         allowsLinkPreview: false,
                         safeBrowsingEnabled: true,
                         mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+                        verticalScrollBarEnabled: false,
+                        horizontalScrollBarEnabled: false,
+                        cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
                       ),
                       shouldOverrideUrlLoading: (controller, navigationAction) async {
                         final uri = navigationAction.request.url;
@@ -310,7 +287,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         }
                         return NavigationActionPolicy.ALLOW;
                       },
-                      pullToRefreshController: _pullToRefreshController,
                       onWebViewCreated: (controller) {
                         _webViewController = controller;
 
@@ -367,14 +343,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         webViewNotifier.setError(false);
                       },
                       onLoadStop: (controller, url) async {
-                        _pullToRefreshController?.endRefreshing();
                         webViewNotifier.setLoading(false);
                       },
                       onProgressChanged: (controller, progress) {
                         webViewNotifier.setProgress(progress / 100);
                       },
                       onReceivedError: (controller, request, error) {
-                        _pullToRefreshController?.endRefreshing();
                         // Only show the full-page error overlay if it is the main frame that failed to load.
                         // This prevents minor sub-resource load failures (e.g., ad scripts, analytics, missing icons, font issues)
                         // from interrupting the user experience with a blocking error screen.
@@ -398,8 +372,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                   ),
                 ],
               ),
-              if (webViewState.isLoading && webViewState.progress < 0.3)
-                const WebviewLoader(),
               if (webViewState.hasError)
                 WebviewErrorOverlay(
                   title: 'Page Load Failed',
