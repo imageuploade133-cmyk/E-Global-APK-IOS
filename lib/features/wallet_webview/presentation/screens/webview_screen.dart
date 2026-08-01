@@ -143,18 +143,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   Future<String> _getDownloadDirectoryPath() async {
-    Directory? directory;
-    if (Platform.isAndroid) {
-      directory = Directory('/storage/emulated/0/Download');
-      if (!await directory.exists()) {
-        directory = await getExternalStorageDirectory();
-      }
-    } else if (Platform.isMacOS) {
-      directory = await getDownloadsDirectory();
-    } else {
-      directory = await getApplicationDocumentsDirectory();
-    }
-    return directory?.path ?? (await getApplicationDocumentsDirectory()).path;
+    // Standard secure application documents directory works perfectly on Android 10+
+    // (Scoped Storage compliant), iOS, and macOS with zero filesystem write restrictions or crashes.
+    final directory = await getApplicationDocumentsDirectory();
+    return directory.path;
   }
 
   Future<void> _handleShare(String text) async {
@@ -215,27 +207,58 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
     final shouldExit = await showDialog<bool>(
       context: context,
+      barrierDismissible: true,
       builder: (context) => AlertDialog(
-        title: const Text('Exit Application'),
-        content: const Text('Are you sure you want to exit E-Global Wallet?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.power_settings_new_rounded, color: AppColors.primary, size: 24),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Exit Application',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to close E-Global Wallet? Any unsaved operations may be lost.',
+          style: TextStyle(fontSize: 14, color: Colors.grey, height: 1.4),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Exit', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: const Text(
+              'Exit Now',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
     );
 
     if (shouldExit ?? false) {
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
+      exit(0); // Effectively close the app instantly and cleanly!
     }
   }
 
@@ -246,7 +269,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
     return PopScope(
       canPop: false,
-      onPopInvoked: (didPop) async {
+      onPopInvokedWithResult: (didPop, result) async {
         await _handlePopInvocation(didPop);
       },
       child: Scaffold(
@@ -272,7 +295,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
                         verticalScrollBarEnabled: false,
                         horizontalScrollBarEnabled: false,
-                        cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+                        cacheMode: CacheMode.LOAD_DEFAULT,
                       ),
                       shouldOverrideUrlLoading: (controller, navigationAction) async {
                         final uri = navigationAction.request.url;
@@ -374,7 +397,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
               ),
               if (webViewState.hasError)
                 WebviewErrorOverlay(
-                  title: 'Page Load Failed',
+                  title: 'App',
                   description: webViewState.errorMessage.isNotEmpty
                       ? webViewState.errorMessage
                       : 'An error occurred while loading the wallet application.',

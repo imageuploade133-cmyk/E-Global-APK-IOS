@@ -145,7 +145,7 @@ class WebviewErrorOverlay extends StatelessWidget {
                               _buildErrorTipRow(
                                 isDark: isDark,
                                 icon: Icons.refresh_rounded,
-                                text: 'Press "Reload Page" to try fetching the app again.',
+                                text: 'Press "Reload app" to try fetching the app again.',
                               ),
                             ],
                           ),
@@ -182,7 +182,7 @@ class WebviewErrorOverlay extends StatelessWidget {
                               ),
                             ),
                             child: const Text(
-                              'Reload Page',
+                              'Reload app',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
