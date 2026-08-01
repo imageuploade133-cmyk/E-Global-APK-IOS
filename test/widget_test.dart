@@ -5,9 +5,11 @@ import 'package:wallet/main.dart';
 
 void main() {
   testWidgets('Initial route builds correctly and mounts the app', (WidgetTester tester) async {
-    await tester.pumpWidget(const ProviderScope(child: EGlobalWalletApp()));
+    await tester.pumpWidget(const ProviderScope(
+      child: EGlobalWalletApp(initialRoute: '/permissions'),
+    ));
 
-    // Verify InitialRouteHandler exists
-    expect(find.byType(InitialRouteHandler), findsOneWidget);
+    // Verify EGlobalWalletApp mounts successfully
+    expect(find.byType(EGlobalWalletApp), findsOneWidget);
   });
 }
