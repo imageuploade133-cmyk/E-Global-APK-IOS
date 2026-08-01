@@ -33,16 +33,16 @@ dev_dependencies:
   flutter_native_splash: ^2.4.0
 
 flutter_native_splash:
-  color: "#FFFFFF"
-  image: "assets/images/logo.png"
-  color_dark: "#FFFFFF"
-  image_dark: "assets/images/logo.png"
+  background_image: "assets/images/splash_bg.png"
+  background_image_dark: "assets/images/splash_bg.png"
   fullscreen: true
+  android_gravity: fill
+  ios_content_mode: scaleToFill
 
   android_12:
-    color: "#FFFFFF"
+    color: "#f67c01"
     image: "assets/images/logo.png"
-    color_dark: "#FFFFFF"
+    color_dark: "#f67c01"
     image_dark: "assets/images/logo.png"
 
   ios: true
@@ -61,3 +61,4 @@ flutter:
 
   assets:
     - assets/images/logo.png
+    - assets/images/splash_bg.png
