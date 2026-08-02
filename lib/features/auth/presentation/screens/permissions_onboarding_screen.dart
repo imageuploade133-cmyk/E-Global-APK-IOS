@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -129,6 +130,13 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
         ],
       ),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Dismiss splash screen since we are onboarding
+    FlutterNativeSplash.remove();
   }
 
   @override
