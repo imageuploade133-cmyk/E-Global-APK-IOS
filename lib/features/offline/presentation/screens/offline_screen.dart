@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -12,6 +13,13 @@ class OfflineScreen extends ConsumerStatefulWidget {
 
 class _OfflineScreenState extends ConsumerState<OfflineScreen> {
   bool _isChecking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Dismiss splash screen since we are offline
+    FlutterNativeSplash.remove();
+  }
 
   Future<void> _retryConnection() async {
     if (_isChecking) return;

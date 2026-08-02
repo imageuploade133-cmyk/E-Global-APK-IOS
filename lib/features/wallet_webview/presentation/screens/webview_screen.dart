@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
@@ -367,6 +368,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                       },
                       onLoadStop: (controller, url) async {
                         webViewNotifier.setLoading(false);
+                        // Dismiss the native splash screen seamlessly once the page has fully loaded
+                        FlutterNativeSplash.remove();
                       },
                       onProgressChanged: (controller, progress) {
                         webViewNotifier.setProgress(progress / 100);

@@ -21,6 +21,7 @@ dependencies:
   local_auth: ^3.0.2
   flutter_secure_storage: ^10.3.1
   share_plus: ^10.1.1
+  flutter_native_splash: ^2.4.0
 
 dev_dependencies:
   flutter_test:
@@ -30,7 +31,6 @@ dev_dependencies:
   custom_lint: ^0.7.6
   riverpod_lint: ^2.6.5
   flutter_launcher_icons: ^0.13.1
-  flutter_native_splash: ^2.4.0
 
 flutter_native_splash:
   color: "#f67c01"
