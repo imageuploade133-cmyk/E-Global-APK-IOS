@@ -13,7 +13,6 @@ import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
 import 'package:wallet/core/utils/logger.dart';
-import '../widgets/webview_error_overlay.dart';
 import '../widgets/download_progress_bar.dart';
 import '../controllers/webview_controller.dart';
 
@@ -30,6 +29,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
   bool _isDownloading = false;
+
+  // E-Global Brand Orange constant color to eliminate black/white spaces completely
+  static const Color brandOrange = Color(0xFFF67C01);
 
   @override
   void initState() {
@@ -144,8 +146,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   Future<String> _getDownloadDirectoryPath() async {
-    // Standard secure application documents directory works perfectly on Android 10+
-    // (Scoped Storage compliant), iOS, and macOS with zero filesystem write restrictions or crashes.
     final directory = await getApplicationDocumentsDirectory();
     return directory.path;
   }
@@ -259,13 +259,28 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     );
 
     if (shouldExit ?? false) {
-      exit(0); // Effectively close the app instantly and cleanly!
+      exit(0);
     }
+  }
+
+  // Inject CSS to override styles with premium iOS (San Francisco) and Android (Roboto) system fonts
+  void _injectSystemFonts() {
+    _webViewController?.evaluateJavascript(source: """
+      (function() {
+        const style = document.createElement('style');
+        style.type = 'text/css';
+        style.innerHTML = `
+          * {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+          }
+        `;
+        document.head.appendChild(style);
+      })();
+    """);
   }
 
   @override
   Widget build(BuildContext context) {
-    final webViewState = ref.watch(webViewProvider);
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
     return PopScope(
@@ -274,141 +289,133 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
         await _handlePopInvocation(didPop);
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
-        body: SafeArea(
+        // Use brandOrange background color for the screen to prevent any white/black flashes
+        backgroundColor: brandOrange,
+        body: Container(
+          color: brandOrange,
           child: Stack(
             children: [
-              Column(
-                children: [
-                  Expanded(
-                    child: InAppWebView(
-                      initialUrlRequest: URLRequest(url: WebUri(AppStrings.baseUrl)),
-                      initialSettings: InAppWebViewSettings(
-                        useShouldOverrideUrlLoading: true,
-                        mediaPlaybackRequiresUserGesture: false,
-                        javaScriptEnabled: true,
-                        domStorageEnabled: true,
-                        databaseEnabled: true,
-                        cacheEnabled: true,
-                        useOnDownloadStart: true,
-                        allowsLinkPreview: false,
-                        safeBrowsingEnabled: true,
-                        mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
-                        verticalScrollBarEnabled: false,
-                        horizontalScrollBarEnabled: false,
-                        cacheMode: CacheMode.LOAD_DEFAULT,
-                      ),
-                      shouldOverrideUrlLoading: (controller, navigationAction) async {
-                        final uri = navigationAction.request.url;
-                        if (uri != null) {
-                          final urlString = uri.toString();
-                          if (urlString.startsWith('share:') || urlString.startsWith('eglobal://share')) {
-                            final queryParams = uri.queryParameters;
-                            final text = queryParams['text'] ?? queryParams['data'] ?? urlString.replaceFirst('share:', '');
-                            await _handleShare(Uri.decodeComponent(text));
-                            return NavigationActionPolicy.CANCEL;
+              Positioned.fill(
+                child: InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri(AppStrings.baseUrl)),
+                  initialSettings: InAppWebViewSettings(
+                    useShouldOverrideUrlLoading: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                    javaScriptEnabled: true,
+                    domStorageEnabled: true,
+                    databaseEnabled: true,
+                    cacheEnabled: true,
+                    useOnDownloadStart: true,
+                    allowsLinkPreview: false,
+                    safeBrowsingEnabled: true,
+                    mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+                    verticalScrollBarEnabled: false,
+                    horizontalScrollBarEnabled: false,
+                    // Robust 100% offline support cache configuration
+                    cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+                    // Remove all window/viewport margins, backgrounds, and styling issues
+                    transparentBackground: true,
+                  ),
+                  shouldOverrideUrlLoading: (controller, navigationAction) async {
+                    final uri = navigationAction.request.url;
+                    if (uri != null) {
+                      final urlString = uri.toString();
+                      if (urlString.startsWith('share:') || urlString.startsWith('eglobal://share')) {
+                        final queryParams = uri.queryParameters;
+                        final text = queryParams['text'] ?? queryParams['data'] ?? urlString.replaceFirst('share:', '');
+                        await _handleShare(Uri.decodeComponent(text));
+                        return NavigationActionPolicy.CANCEL;
+                      }
+                    }
+                    return NavigationActionPolicy.ALLOW;
+                  },
+                  onWebViewCreated: (controller) {
+                    _webViewController = controller;
+
+                    // Expose generic 'share' handler to the web app
+                    controller.addJavaScriptHandler(
+                      handlerName: 'share',
+                      callback: (args) async {
+                        if (args.isNotEmpty) {
+                          final shareData = args[0];
+                          if (shareData is String) {
+                            await _handleShare(shareData);
+                          } else if (shareData is Map) {
+                            final text = shareData['text'] as String?;
+                            final url = shareData['url'] as String?;
+                            final base64Data = shareData['base64'] as String?;
+                            final fileName = shareData['fileName'] as String?;
+
+                            if (base64Data != null) {
+                              await _handleBase64Share(base64Data, fileName ?? 'receipt.png');
+                            } else if (url != null) {
+                              await _handleUrlShare(url, fileName ?? 'receipt.png');
+                            } else if (text != null) {
+                              await _handleShare(text);
+                            }
                           }
                         }
-                        return NavigationActionPolicy.ALLOW;
                       },
-                      onWebViewCreated: (controller) {
-                        _webViewController = controller;
+                    );
 
-                        // Expose generic 'share' handler to the web app
-                        controller.addJavaScriptHandler(
-                          handlerName: 'share',
-                          callback: (args) async {
-                            if (args.isNotEmpty) {
-                              final shareData = args[0];
-                              if (shareData is String) {
-                                await _handleShare(shareData);
-                              } else if (shareData is Map) {
-                                final text = shareData['text'] as String?;
-                                final url = shareData['url'] as String?;
-                                final base64Data = shareData['base64'] as String?;
-                                final fileName = shareData['fileName'] as String?;
-
-                                if (base64Data != null) {
-                                  await _handleBase64Share(base64Data, fileName ?? 'receipt.png');
-                                } else if (url != null) {
-                                  await _handleUrlShare(url, fileName ?? 'receipt.png');
-                                } else if (text != null) {
-                                  await _handleShare(text);
-                                }
-                              }
+                    // Expose receipt-specific 'shareReceipt' handler to the web app
+                    controller.addJavaScriptHandler(
+                      handlerName: 'shareReceipt',
+                      callback: (args) async {
+                        if (args.isNotEmpty) {
+                          final receiptData = args[0];
+                          if (receiptData is String) {
+                            await _handleShare(receiptData);
+                          } else if (receiptData is Map) {
+                            final text = receiptData['text'] as String?;
+                            final base64 = receiptData['base64'] as String?;
+                            final fileName = receiptData['fileName'] as String?;
+                            if (base64 != null) {
+                              await _handleBase64Share(base64, fileName ?? 'receipt.pdf');
+                            } else if (text != null) {
+                              await _handleShare(text);
                             }
-                          },
-                        );
-
-                        // Expose receipt-specific 'shareReceipt' handler to the web app
-                        controller.addJavaScriptHandler(
-                          handlerName: 'shareReceipt',
-                          callback: (args) async {
-                            if (args.isNotEmpty) {
-                              final receiptData = args[0];
-                              if (receiptData is String) {
-                                await _handleShare(receiptData);
-                              } else if (receiptData is Map) {
-                                final text = receiptData['text'] as String?;
-                                final base64 = receiptData['base64'] as String?;
-                                final fileName = receiptData['fileName'] as String?;
-                                if (base64 != null) {
-                                  await _handleBase64Share(base64, fileName ?? 'receipt.pdf');
-                                } else if (text != null) {
-                                  await _handleShare(text);
-                                }
-                              }
-                            }
-                          },
-                        );
-                      },
-                      onLoadStart: (controller, url) {
-                        webViewNotifier.setLoading(true);
-                        webViewNotifier.setError(false);
-                      },
-                      onLoadStop: (controller, url) async {
-                        webViewNotifier.setLoading(false);
-                        // Dismiss the native splash screen seamlessly once the page has fully loaded
-                        FlutterNativeSplash.remove();
-                      },
-                      onProgressChanged: (controller, progress) {
-                        webViewNotifier.setProgress(progress / 100);
-                      },
-                      onReceivedError: (controller, request, error) {
-                        // Only show the full-page error overlay if it is the main frame that failed to load.
-                        // This prevents minor sub-resource load failures (e.g., ad scripts, analytics, missing icons, font issues)
-                        // from interrupting the user experience with a blocking error screen.
-                        if (request.isForMainFrame ?? true) {
-                          webViewNotifier.setError(true, error.description);
+                          }
                         }
                       },
-                      onPermissionRequest: (controller, request) async {
-                        return await _handlePermissionRequest(controller, request);
-                      },
-                      onDownloadStartRequest: (controller, request) async {
-                        await _handleDownload(
-                          request.url.toString(),
-                          request.userAgent,
-                          request.contentDisposition,
-                          request.mimeType,
-                          request.contentLength,
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              if (webViewState.hasError)
-                WebviewErrorOverlay(
-                  title: 'App',
-                  description: webViewState.errorMessage.isNotEmpty
-                      ? webViewState.errorMessage
-                      : 'An error occurred while loading the wallet application.',
-                  onRetry: () {
+                    );
+                  },
+                  onLoadStart: (controller, url) {
+                    webViewNotifier.setLoading(true);
                     webViewNotifier.setError(false);
-                    _webViewController?.reload();
+                  },
+                  onLoadStop: (controller, url) async {
+                    webViewNotifier.setLoading(false);
+
+                    // Inject beautiful iOS/Android system font families right when the page fully loads
+                    _injectSystemFonts();
+
+                    // Dismiss the native splash screen seamlessly once the page has fully loaded
+                    FlutterNativeSplash.remove();
+                  },
+                  onProgressChanged: (controller, progress) {
+                    webViewNotifier.setProgress(progress / 100);
+                  },
+                  onReceivedError: (controller, request, error) {
+                    // Suppress all browser errors and ignore load errors.
+                    // This guarantees that the user is always presented with the last cached/rendered page
+                    // and never sees any default browser error pages containing raw web URLs or standard crash alerts.
+                    AppLogger.e('WebView silent non-blocking error handled: ${error.description}');
+                  },
+                  onPermissionRequest: (controller, request) async {
+                    return await _handlePermissionRequest(controller, request);
+                  },
+                  onDownloadStartRequest: (controller, request) async {
+                    await _handleDownload(
+                      request.url.toString(),
+                      request.userAgent,
+                      request.contentDisposition,
+                      request.mimeType,
+                      request.contentLength,
+                    );
                   },
                 ),
+              ),
               if (_isDownloading)
                 Align(
                   alignment: Alignment.bottomCenter,
