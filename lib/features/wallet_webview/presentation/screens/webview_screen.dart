@@ -263,15 +263,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     }
   }
 
-  // Inject CSS to override styles with premium Apple iOS system font families
-  void _injectAppleIosFont() {
+  // Inject CSS to override styles with premium iOS (San Francisco) and Android (Roboto) system fonts
+  void _injectSystemFonts() {
     _webViewController?.evaluateJavascript(source: """
       (function() {
         const style = document.createElement('style');
         style.type = 'text/css';
         style.innerHTML = `
           * {
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
           }
         `;
         document.head.appendChild(style);
@@ -387,8 +387,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                   onLoadStop: (controller, url) async {
                     webViewNotifier.setLoading(false);
 
-                    // Inject beautiful iOS font families right when the page fully loads
-                    _injectAppleIosFont();
+                    // Inject beautiful iOS/Android system font families right when the page fully loads
+                    _injectSystemFonts();
 
                     // Dismiss the native splash screen seamlessly once the page has fully loaded
                     FlutterNativeSplash.remove();
