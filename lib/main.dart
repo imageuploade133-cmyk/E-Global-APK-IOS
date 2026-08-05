@@ -13,12 +13,12 @@ void main() async {
   // Set the app to true immersive full-screen mode immediately on boot to remove system bars
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-  // Set the system status bar and navigation bar to transparent so that there's no black/white bars.
+  // Set the system status bar and navigation bar to transparent with dark icons for a bleached, clean look.
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
+    statusBarIconBrightness: Brightness.dark,
     systemNavigationBarColor: Colors.transparent,
-    systemNavigationBarIconBrightness: Brightness.light,
+    systemNavigationBarIconBrightness: Brightness.dark,
   ));
 
   runApp(const ProviderScope(

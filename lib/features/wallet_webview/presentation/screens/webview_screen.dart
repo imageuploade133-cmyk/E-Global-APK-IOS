@@ -30,13 +30,31 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   String _downloadingFileName = '';
   bool _isDownloading = false;
 
-  // E-Global Brand Orange constant color to eliminate black/white spaces completely
-  static const Color brandOrange = Color(0xFFF67C01);
+  // Bleached Clean White constant color to eliminate black/white/colored layout flashes
+  static const Color bleachWhite = Colors.white;
+
+  // Base64 logo to render perfectly offline inside local HTML loaders
+  String _logoBase64 = '';
 
   @override
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _loadLogoAsset();
+  }
+
+  Future<void> _loadLogoAsset() async {
+    try {
+      final bytes = await rootBundle.load('assets/images/logo.png');
+      final list = bytes.buffer.asUint8List();
+      if (mounted) {
+        setState(() {
+          _logoBase64 = base64Encode(list);
+        });
+      }
+    } catch (e) {
+      AppLogger.e('Error converting logo to base64', e);
+    }
   }
 
   Future<PermissionResponse?> _handlePermissionRequest(
@@ -304,8 +322,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     """);
   }
 
-  // Fallback to beautiful branded brandOrange screen if WebView fails to load, preventing Chromium Webpage not available from showing
+  // Fallback to beautiful branded screen if WebView fails to load, preventing Chromium Webpage not available from showing
   void _loadElegantFallback() {
+    final logoSrc = _logoBase64.isNotEmpty ? "data:image/png;base64,$_logoBase64" : "";
+
     _webViewController?.loadData(data: """
       <!DOCTYPE html>
       <html>
@@ -315,39 +335,50 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
         <title>Loading</title>
         <style>
           body {
-            background-color: #f67c01;
+            background-color: #ffffff;
             margin: 0;
             padding: 0;
             height: 100vh;
             display: flex;
-            flex-direction: column;
             justify-content: center;
             align-items: center;
             overflow: hidden;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-            color: white;
           }
-          .spinner {
-            width: 44px;
-            height: 44px;
-            border: 4px solid rgba(255, 255, 255, 0.2);
+          .loader-container {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100px;
+            height: 100px;
+          }
+          .gradient-spinner {
+            width: 72px;
+            height: 72px;
             border-radius: 50%;
-            border-top-color: #ffffff;
-            animation: spin 0.8s linear infinite;
+            padding: 4px;
+            background: conic-gradient(from 0deg, #f67c01, #ffcc80, transparent 65%);
+            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 0);
+            mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 0);
+            animation: spin 1s linear infinite;
+          }
+          .logo-icon {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            object-fit: contain;
           }
           @keyframes spin {
             to { transform: rotate(360deg); }
           }
-          .logo {
-            width: 100px;
-            height: 100px;
-            margin-bottom: 24px;
-            object-fit: contain;
-          }
         </style>
       </head>
       <body>
-        <div class="spinner"></div>
+        <div class="loader-container">
+          <div class="gradient-spinner"></div>
+          ${logoSrc.isNotEmpty ? '<img class="logo-icon" src="$logoSrc" alt="Logo" />' : ''}
+        </div>
         <script>
           // Automatic periodic retry loading the main page in background silently
           setInterval(function() {
@@ -369,10 +400,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
         await _handlePopInvocation(didPop);
       },
       child: Scaffold(
-        // Use brandOrange background color for the screen to prevent any white/black flashes
-        backgroundColor: brandOrange,
+        backgroundColor: bleachWhite,
         body: Container(
-          color: brandOrange,
+          color: bleachWhite,
           child: Stack(
             children: [
               Positioned.fill(
@@ -396,6 +426,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
                     // Remove all window/viewport margins, backgrounds, and styling issues
                     transparentBackground: true,
+                    // Enable high fidelity viewport dynamic scaling for smaller devices
+                    useWideViewPort: true,
+                    loadWithOverviewMode: true,
+                    supportZoom: false,
                   ),
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
                     final uri = navigationAction.request.url;
