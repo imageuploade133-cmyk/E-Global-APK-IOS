@@ -279,6 +279,86 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     """);
   }
 
+  // Disable input auto-fill overlays to prevent browser/keyboard password autofill popups on login forms
+  void _disableAutofillOverlays() {
+    _webViewController?.evaluateJavascript(source: """
+      (function() {
+        const disableAutofill = () => {
+          const inputs = document.querySelectorAll('input');
+          inputs.forEach(input => {
+            input.setAttribute('autocomplete', 'new-password');
+            input.setAttribute('autocorrect', 'off');
+            input.setAttribute('autocapitalize', 'off');
+            input.setAttribute('spellcheck', 'false');
+          });
+          const forms = document.querySelectorAll('form');
+          forms.forEach(form => {
+            form.setAttribute('autocomplete', 'off');
+          });
+        };
+        disableAutofill();
+        // Also run on dynamic mutations to cover late rendering / single page app navigation
+        const observer = new MutationObserver(disableAutofill);
+        observer.observe(document.body, { childList: true, subtree: true });
+      })();
+    """);
+  }
+
+  // Fallback to beautiful branded brandOrange screen if WebView fails to load, preventing Chromium Webpage not available from showing
+  void _loadElegantFallback() {
+    _webViewController?.loadData(data: """
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>Loading</title>
+        <style>
+          body {
+            background-color: #f67c01;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            color: white;
+          }
+          .spinner {
+            width: 44px;
+            height: 44px;
+            border: 4px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            border-top-color: #ffffff;
+            animation: spin 0.8s linear infinite;
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          .logo {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 24px;
+            object-fit: contain;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="spinner"></div>
+        <script>
+          // Automatic periodic retry loading the main page in background silently
+          setInterval(function() {
+            window.location.replace("${AppStrings.baseUrl}");
+          }, 3500);
+        </script>
+      </body>
+      </html>
+    """);
+  }
+
   @override
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
@@ -308,7 +388,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     useOnDownloadStart: true,
                     allowsLinkPreview: false,
                     safeBrowsingEnabled: true,
-                    mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+                    // Allow mixed content so all icons/fonts/scripts load without HTTP restrictions
+                    mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
                     // Robust 100% offline support cache configuration
@@ -390,6 +471,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     // Inject beautiful iOS/Android system font families right when the page fully loads
                     _injectSystemFonts();
 
+                    // Disable autofill/autocomplete popups to stop showing browser/keyboard credential overlays
+                    _disableAutofillOverlays();
+
                     // Dismiss the native splash screen seamlessly once the page has fully loaded
                     FlutterNativeSplash.remove();
                   },
@@ -401,6 +485,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     // This guarantees that the user is always presented with the last cached/rendered page
                     // and never sees any default browser error pages containing raw web URLs or standard crash alerts.
                     AppLogger.e('WebView silent non-blocking error handled: ${error.description}');
+
+                    if (request.isForMainFrame ?? true) {
+                      _loadElegantFallback();
+                    }
                   },
                   onPermissionRequest: (controller, request) async {
                     return await _handlePermissionRequest(controller, request);
