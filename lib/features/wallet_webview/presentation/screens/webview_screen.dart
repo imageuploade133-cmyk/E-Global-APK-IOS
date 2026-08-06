@@ -596,11 +596,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                   onWebViewCreated: (controller) {
                     _webViewController = controller;
 
+                    // Register the controller with pushNotificationService for dynamic JavaScript callbacks
+                    final pushService = ref.read(pushNotificationServiceProvider);
+                    pushService.setWebViewController(controller);
+
                     // Expose 'getFcmToken' handler to the web app
                     controller.addJavaScriptHandler(
                       handlerName: 'getFcmToken',
                       callback: (args) async {
-                        final pushService = ref.read(pushNotificationServiceProvider);
                         return await pushService.getFcmToken();
                       },
                     );

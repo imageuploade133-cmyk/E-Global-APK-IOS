@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../security/secure_storage_service.dart';
 import '../utils/logger.dart';
 
@@ -13,6 +14,7 @@ abstract class PushNotificationService {
   Stream<String> get onTokenRefresh;
   Stream<String> get onNotificationRedirectStream;
   Future<void> sendTokenToBackend(String token);
+  void setWebViewController(InAppWebViewController controller);
 }
 
 class PushNotificationServiceImpl implements PushNotificationService {
@@ -20,11 +22,37 @@ class PushNotificationServiceImpl implements PushNotificationService {
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
   final SecureStorageService _secureStorage;
 
+  InAppWebViewController? _webViewController;
+  String? _lastToken;
+
   // Stream controller to broadcast destination paths to the WebView
   final StreamController<String> _redirectController = StreamController<String>.broadcast();
 
   PushNotificationServiceImpl({required SecureStorageService secureStorage})
       : _secureStorage = secureStorage;
+
+  @override
+  void setWebViewController(InAppWebViewController controller) {
+    _webViewController = controller;
+    if (_lastToken != null) {
+      _syncTokenWithWebView(_lastToken!);
+    }
+  }
+
+  Future<void> _syncTokenWithWebView(String token) async {
+    if (_webViewController != null) {
+      try {
+        AppLogger.i('Syncing FCM token via WebView JavaScript Bridge...');
+        await _webViewController!.evaluateJavascript(source: """
+          if (typeof window !== 'undefined' && window.__syncFcmToken) {
+            window.__syncFcmToken('$token');
+          }
+        """);
+      } catch (e) {
+        AppLogger.e('Error evaluating sync JS in WebView', e);
+      }
+    }
+  }
 
   @override
   Stream<String> get onNotificationRedirectStream => _redirectController.stream;
@@ -107,11 +135,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
   @override
   Future<void> sendTokenToBackend(String token) async {
     try {
-      // Securely send FCM token to backend API.
-      // E-Global Wallet backend API integration point
-      AppLogger.i('FCM Token securely synced with backend endpoint.');
+      _lastToken = token;
+      await _syncTokenWithWebView(token);
+      AppLogger.i('FCM Token successfully cached and queued for WebView synchronization: $token');
     } catch (e) {
-      AppLogger.e('Error syncing FCM token to backend', e);
+      AppLogger.e('Error syncing FCM token to WebView', e);
     }
   }
 
