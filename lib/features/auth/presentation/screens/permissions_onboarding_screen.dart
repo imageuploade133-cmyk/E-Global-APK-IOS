@@ -17,35 +17,22 @@ class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
 class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboardingScreen> {
   bool _isRequesting = false;
 
-  // Dynamic permission checklist based on OS platform for absolute compatibility
-  final List<Permission> _permissions = Platform.isAndroid
-      ? [
-          Permission.camera,
-          Permission.microphone,
-          Permission.locationWhenInUse,
-          Permission.storage,
-          Permission.notification,
-        ]
-      : [
-          Permission.camera,
-          Permission.microphone,
-          Permission.locationWhenInUse,
-          Permission.photos,
-          Permission.notification,
-        ];
+  // Essential critical permissions that are required for the application's secure operations to function
+  final List<Permission> _permissions = [
+    Permission.camera,
+    Permission.microphone,
+    Permission.locationWhenInUse,
+  ];
 
-  Future<void> _requestAllPermissions() async {
-    if (_isRequesting) return;
-    setState(() {
-      _isRequesting = true;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPermissionsAndProceed();
     });
+  }
 
-    // Request permissions sequentially/on-screen
-    for (final perm in _permissions) {
-      await perm.request();
-    }
-
-    // Check final status
+  Future<void> _checkPermissionsAndProceed() async {
     bool allGranted = true;
     for (final perm in _permissions) {
       final status = await perm.status;
@@ -56,29 +43,60 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
       }
     }
 
+    if (allGranted) {
+      await _proceedToApp();
+    } else {
+      // If not all granted, show the onboarding UI and remove splash screen
+      FlutterNativeSplash.remove();
+    }
+  }
+
+  Future<void> _requestAllPermissions() async {
+    if (_isRequesting) return;
+    setState(() {
+      _isRequesting = true;
+    });
+
+    // Request essential permissions sequentially/on-screen
+    for (final perm in _permissions) {
+      final status = await perm.request();
+      if (status.isPermanentlyDenied) {
+        setState(() {
+          _isRequesting = false;
+        });
+        _showPermanentlyDeniedDialog(perm);
+        return;
+      } else if (!status.isGranted && !status.isLimited && !status.isRestricted) {
+        setState(() {
+          _isRequesting = false;
+        });
+        _showPermissionDeniedDialog(perm);
+        return;
+      }
+    }
+
+    // Attempt to request storage/photos and notifications on-demand silently (without crashing or blocking on failure)
+    try {
+      if (Platform.isAndroid) {
+        await Permission.storage.request();
+      } else if (Platform.isIOS) {
+        await Permission.photos.request();
+      }
+      await Permission.notification.request();
+    } catch (_) {
+      // Non-blocking catch
+    }
+
     setState(() {
       _isRequesting = false;
     });
 
-    if (allGranted) {
-      _proceedToApp();
-    } else {
-      _showPermissionDeniedDialog();
-    }
+    await _proceedToApp();
   }
 
   Future<void> _proceedToApp() async {
-    final connectivity = ref.read(connectivityServiceProvider);
     final secureStorage = ref.read(secureStorageProvider);
     final biometrics = ref.read(biometricServiceProvider);
-
-    final isConnected = await connectivity.isConnected;
-    if (!isConnected) {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/offline');
-      }
-      return;
-    }
 
     final biometricEnabledStr = await secureStorage.read(AppStrings.biometricKey);
     final biometricEnabled = biometricEnabledStr == 'true';
@@ -93,7 +111,18 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
     }
   }
 
-  void _showPermissionDeniedDialog() {
+  String _getPermissionName(Permission permission) {
+    if (permission == Permission.camera) return 'Camera Access';
+    if (permission == Permission.microphone) return 'Microphone Access';
+    if (permission == Permission.location || permission == Permission.locationWhenInUse) return 'Location Services';
+    if (permission == Permission.storage) return 'Storage Access';
+    if (permission == Permission.photos) return 'Photo Library';
+    if (permission == Permission.notification) return 'Real-time Alerts';
+    return permission.toString();
+  }
+
+  void _showPermissionDeniedDialog(Permission permission) {
+    final name = _getPermissionName(permission);
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -105,14 +134,14 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
             Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
             SizedBox(width: 12),
             Text(
-              'Permissions Required',
+              'Permission Required',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
             ),
           ],
         ),
-        content: const Text(
-          'E-Global Wallet requires all permissions to ensure safe, secure, and compliant financial operations. The app will now close.',
-          style: TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
+        content: Text(
+          'E-Global Wallet requires the $name permission to ensure safe, secure, and compliant financial operations. Since this permission was rejected, the application will now close.',
+          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
         ),
         actions: [
           ElevatedButton(
@@ -132,11 +161,57 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    // Dismiss splash screen since we are onboarding
-    FlutterNativeSplash.remove();
+  void _showPermanentlyDeniedDialog(Permission permission) {
+    final name = _getPermissionName(permission);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: const Row(
+          children: [
+            Icon(Icons.settings_suggest_rounded, color: AppColors.primary, size: 28),
+            SizedBox(width: 12),
+            Text(
+              'Enable Permission',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
+            ),
+          ],
+        ),
+        content: Text(
+          'The $name permission has been permanently denied. E-Global Wallet requires this permission to function. Please open App Settings to enable it manually, or exit the application.',
+          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              exit(0);
+            },
+            child: const Text(
+              'Exit App',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await openAppSettings();
+              exit(0); // On opening settings, close the app so it restarts with fresh settings
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+            child: const Text(
+              'Open Settings',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -202,20 +277,6 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                           icon: Icons.location_on_rounded,
                           title: 'Location Services',
                           description: 'Guarantees location compliance and anti-fraud detection during transactions.',
-                        ),
-                        const SizedBox(height: 20),
-                        _buildPermissionItem(
-                          icon: Platform.isAndroid ? Icons.folder_open_rounded : Icons.photo_library_rounded,
-                          title: Platform.isAndroid ? 'Storage Access' : 'Photo Library',
-                          description: Platform.isAndroid
-                              ? 'Allows secure temporary file caching and saving downloaded receipts.'
-                              : 'Allows seamless selection and uploading of saved payment or verification documents.',
-                        ),
-                        const SizedBox(height: 20),
-                        _buildPermissionItem(
-                          icon: Icons.notifications_active_rounded,
-                          title: 'Real-time Alerts',
-                          description: 'Keeps you updated instantly with transaction confirmations, bills, and notifications.',
                         ),
                       ],
                     ),
