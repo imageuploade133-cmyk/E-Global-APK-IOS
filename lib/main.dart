@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
+import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
+import 'features/auth/presentation/screens/biometric_login_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
 
 void main() async {
@@ -22,7 +24,7 @@ void main() async {
   ));
 
   runApp(const ProviderScope(
-    child: EGlobalWalletApp(initialRoute: '/webview'),
+    child: EGlobalWalletApp(initialRoute: '/permissions'),
   ));
 }
 
@@ -44,6 +46,8 @@ class EGlobalWalletApp extends ConsumerWidget {
       initialRoute: initialRoute,
       routes: {
         '/webview': (context) => const WebviewScreen(),
+        '/permissions': (context) => const PermissionsOnboardingScreen(),
+        '/biometric_login': (context) => const BiometricLoginScreen(),
       },
     );
   }

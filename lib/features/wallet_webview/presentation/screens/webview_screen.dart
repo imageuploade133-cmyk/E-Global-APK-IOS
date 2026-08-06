@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +26,8 @@ class WebviewScreen extends ConsumerStatefulWidget {
 
 class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   InAppWebViewController? _webViewController;
+  StreamSubscription<bool>? _connectivitySubscription;
+  bool _isOnline = true;
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -41,6 +44,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _loadLogoAsset();
+    _initConnectivity();
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadLogoAsset() async {
@@ -55,6 +65,92 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     } catch (e) {
       AppLogger.e('Error converting logo to base64', e);
     }
+  }
+
+  Future<void> _initConnectivity() async {
+    final connectivity = ref.read(connectivityServiceProvider);
+    _isOnline = await connectivity.isConnected;
+    if (mounted) {
+      setState(() {});
+    }
+
+    _connectivitySubscription = connectivity.onConnectivityChanged.listen((isConnected) {
+      if (mounted) {
+        setState(() {
+          _isOnline = isConnected;
+        });
+        _handleConnectivityChange(isConnected);
+      }
+    });
+  }
+
+  Future<void> _handleConnectivityChange(bool isConnected) async {
+    if (_webViewController != null) {
+      final cacheMode = isConnected ? CacheMode.LOAD_DEFAULT : CacheMode.LOAD_CACHE_ELSE_NETWORK;
+      await _webViewController!.setSettings(
+        settings: InAppWebViewSettings(
+          cacheMode: cacheMode,
+        ),
+      );
+      if (isConnected) {
+        // Silently synchronize and reload in background to update cached assets
+        await _webViewController!.reload();
+      }
+    }
+  }
+
+  CacheMode _getCurrentCacheMode() {
+    return _isOnline ? CacheMode.LOAD_DEFAULT : CacheMode.LOAD_CACHE_ELSE_NETWORK;
+  }
+
+  void _showRuntimePermissionDeniedDialog(Permission permission) {
+    final name = _getPermissionName(permission);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: Colors.white,
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+            SizedBox(width: 12),
+            Text(
+              'Permission Required',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
+            ),
+          ],
+        ),
+        content: Text(
+          'E-Global Wallet requires the $name permission to proceed. Since it was denied, the application will now close.',
+          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              exit(0);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: const Text('Exit App', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getPermissionName(Permission permission) {
+    if (permission == Permission.camera) return 'Camera Access';
+    if (permission == Permission.microphone) return 'Microphone Access';
+    if (permission == Permission.location || permission == Permission.locationWhenInUse) return 'Location Services';
+    if (permission == Permission.storage) return 'Storage Access';
+    if (permission == Permission.photos) return 'Photo Library';
+    if (permission == Permission.notification) return 'Real-time Alerts';
+    return permission.toString();
   }
 
   Future<PermissionResponse?> _handlePermissionRequest(
@@ -73,7 +169,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
     if (permissionsToRequest.isNotEmpty) {
       for (final perm in permissionsToRequest) {
-        await perm.request();
+        final status = await perm.request();
+        if (!status.isGranted && !status.isLimited && !status.isRestricted) {
+          _showRuntimePermissionDeniedDialog(perm);
+          return PermissionResponse(
+            resources: permissionRequest.resources,
+            action: PermissionResponseAction.DENY,
+          );
+        }
       }
     }
 
@@ -88,11 +191,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       final permissionService = ref.read(permissionServiceProvider);
       final hasStoragePermission = await permissionService.requestStoragePermission();
       if (!hasStoragePermission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Storage permission is required to download files.')),
-          );
-        }
+        _showRuntimePermissionDeniedDialog(Permission.storage);
         return;
       }
 
@@ -157,7 +256,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       AppLogger.e('Download error', e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
+          const SnackBar(content: Text('Download failed: Network error or insufficient storage.')),
         );
       }
     }
@@ -165,12 +264,18 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
   Future<String> _getDownloadDirectoryPath() async {
     final directory = await getApplicationDocumentsDirectory();
-    return directory.path;
+    final path = '${directory.path}/eglobal_downloads';
+    final dir = Directory(path);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return path;
   }
 
   Future<void> _handleShare(String text) async {
     try {
-      await Share.share(text, subject: 'E-Global Wallet Receipt');
+      final sanitizedText = text.replaceAll(AppStrings.baseUrl, '').replaceAll('https://e-global-197077.vercel.app/', '');
+      await Share.share(sanitizedText, subject: 'E-Global Wallet Receipt');
     } catch (e) {
       AppLogger.e('Error sharing text', e);
     }
@@ -418,18 +523,23 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     useOnDownloadStart: true,
                     allowsLinkPreview: false,
                     safeBrowsingEnabled: true,
+                    disableDefaultErrorPage: true,
                     // Allow mixed content so all icons/fonts/scripts load without HTTP restrictions
                     mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
                     // Robust 100% offline support cache configuration
-                    cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+                    cacheMode: _getCurrentCacheMode(),
                     // Remove all window/viewport margins, backgrounds, and styling issues
                     transparentBackground: true,
                     // Enable high fidelity viewport dynamic scaling for smaller devices
                     useWideViewPort: true,
                     loadWithOverviewMode: true,
                     supportZoom: false,
+                    thirdPartyCookiesEnabled: true,
+                    sharedCookiesEnabled: true,
+                    allowFileAccessFromFileURLs: true,
+                    allowUniversalAccessFromFileURLs: true,
                   ),
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
                     final uri = navigationAction.request.url;
@@ -523,6 +633,90 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     if (request.isForMainFrame ?? true) {
                       _loadElegantFallback();
                     }
+                  },
+                  onReceivedHttpError: (controller, request, errorResponse) {
+                    AppLogger.e('WebView HTTP error handled: ${errorResponse.statusCode}');
+                    if (request.isForMainFrame ?? true) {
+                      _loadElegantFallback();
+                    }
+                  },
+                  onReceivedServerTrustAuthRequest: (controller, challenge) async {
+                    AppLogger.e('WebView SSL/Trust authentication requested for host: ${challenge.protectionSpace.host}');
+                    // Return cancel to safely handle SSL errors / protect connection in production
+                    return ServerTrustAuthResponse(action: ServerTrustAuthResponseAction.CANCEL);
+                  },
+                  onJsAlert: (controller, jsAlertRequest) async {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        title: const Text('E-Global Wallet', style: TextStyle(fontWeight: FontWeight.bold)),
+                        content: Text(jsAlertRequest.message ?? ''),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('OK', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    );
+                    return JsAlertResponse(action: JsAlertResponseAction.CONFIRM);
+                  },
+                  onJsConfirm: (controller, jsConfirmRequest) async {
+                    final bool? result = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        title: const Text('E-Global Wallet', style: TextStyle(fontWeight: FontWeight.bold)),
+                        content: Text(jsConfirmRequest.message ?? ''),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('Confirm', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    );
+                    return JsConfirmResponse(
+                      action: (result ?? false) ? JsConfirmResponseAction.CONFIRM : JsConfirmResponseAction.CANCEL,
+                    );
+                  },
+                  onJsPrompt: (controller, jsPromptRequest) async {
+                    final TextEditingController textController = TextEditingController(text: jsPromptRequest.defaultValue);
+                    final String? result = await showDialog<String>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        title: const Text('E-Global Wallet', style: TextStyle(fontWeight: FontWeight.bold)),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(jsPromptRequest.message ?? ''),
+                            const SizedBox(height: 8),
+                            TextField(controller: textController),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(null),
+                            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(textController.text),
+                            child: const Text('OK', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    );
+                    return JsPromptResponse(
+                      value: result,
+                      action: result != null ? JsPromptResponseAction.CONFIRM : JsPromptResponseAction.CANCEL,
+                    );
                   },
                   onPermissionRequest: (controller, request) async {
                     return await _handlePermissionRequest(controller, request);
