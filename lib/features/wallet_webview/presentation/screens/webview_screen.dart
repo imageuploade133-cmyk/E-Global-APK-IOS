@@ -27,7 +27,9 @@ class WebviewScreen extends ConsumerStatefulWidget {
 class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   InAppWebViewController? _webViewController;
   StreamSubscription<bool>? _connectivitySubscription;
+  StreamSubscription<String>? _redirectSubscription;
   bool _isOnline = true;
+  String? _pendingRedirectPath;
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -45,11 +47,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _loadLogoAsset();
     _initConnectivity();
+    _initPushNotifications();
+
+    // Safety fallback: Ensure native splash screen is always removed after a short timeout under all circumstances
+    Timer(const Duration(seconds: 3), () {
+      try {
+        FlutterNativeSplash.remove();
+      } catch (_) {}
+    });
   }
 
   @override
   void dispose() {
     _connectivitySubscription?.cancel();
+    _redirectSubscription?.cancel();
     super.dispose();
   }
 
@@ -82,6 +93,34 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
         _handleConnectivityChange(isConnected);
       }
     });
+  }
+
+  Future<void> _initPushNotifications() async {
+    final pushService = ref.read(pushNotificationServiceProvider);
+
+    // Register the redirect listener FIRST so we catch any initial broadcasted messages on bootup
+    _redirectSubscription = pushService.onNotificationRedirectStream.listen((path) {
+      _handleNotificationRedirect(path);
+    });
+
+    // Initialize Push notifications (including processing initial messages)
+    await pushService.initialize();
+  }
+
+  String _buildRedirectUrl(String path) {
+    final baseUrl = AppStrings.baseUrl;
+    final cleanBase = baseUrl.endsWith('/') ? baseUrl : '$baseUrl/';
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return '$cleanBase$cleanPath';
+  }
+
+  void _handleNotificationRedirect(String path) {
+    if (_webViewController != null && path.isNotEmpty) {
+      final fullUrl = _buildRedirectUrl(path);
+      _webViewController!.loadUrl(urlRequest: URLRequest(url: WebUri(fullUrl)));
+    } else {
+      _pendingRedirectPath = path;
+    }
   }
 
   Future<void> _handleConnectivityChange(bool isConnected) async {
@@ -557,6 +596,24 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                   onWebViewCreated: (controller) {
                     _webViewController = controller;
 
+                    // Expose 'getFcmToken' handler to the web app
+                    controller.addJavaScriptHandler(
+                      handlerName: 'getFcmToken',
+                      callback: (args) async {
+                        final pushService = ref.read(pushNotificationServiceProvider);
+                        return await pushService.getFcmToken();
+                      },
+                    );
+
+                    // Expose 'requestNotificationPermission' handler to the web app
+                    controller.addJavaScriptHandler(
+                      handlerName: 'requestNotificationPermission',
+                      callback: (args) async {
+                        final pushService = ref.read(pushNotificationServiceProvider);
+                        await pushService.requestPermission();
+                      },
+                    );
+
                     // Expose generic 'share' handler to the web app
                     controller.addJavaScriptHandler(
                       handlerName: 'share',
@@ -604,6 +661,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         }
                       },
                     );
+
+                    // Execute any pending redirect from cold boot / terminated state
+                    if (_pendingRedirectPath != null) {
+                      final path = _pendingRedirectPath!;
+                      _pendingRedirectPath = null;
+                      _handleNotificationRedirect(path);
+                    }
                   },
                   onLoadStart: (controller, url) {
                     webViewNotifier.setLoading(true);

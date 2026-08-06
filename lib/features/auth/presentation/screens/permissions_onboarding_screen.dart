@@ -17,22 +17,12 @@ class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
 class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboardingScreen> {
   bool _isRequesting = false;
 
-  // Dynamic permission checklist based on OS platform for absolute compatibility
-  final List<Permission> _permissions = Platform.isAndroid
-      ? [
-          Permission.camera,
-          Permission.microphone,
-          Permission.locationWhenInUse,
-          Permission.storage,
-          Permission.notification,
-        ]
-      : [
-          Permission.camera,
-          Permission.microphone,
-          Permission.locationWhenInUse,
-          Permission.photos,
-          Permission.notification,
-        ];
+  // Essential critical permissions that are required for the application's secure operations to function
+  final List<Permission> _permissions = [
+    Permission.camera,
+    Permission.microphone,
+    Permission.locationWhenInUse,
+  ];
 
   @override
   void initState() {
@@ -67,7 +57,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
       _isRequesting = true;
     });
 
-    // Request permissions sequentially/on-screen
+    // Request essential permissions sequentially/on-screen
     for (final perm in _permissions) {
       final status = await perm.request();
       if (status.isPermanentlyDenied) {
@@ -83,6 +73,18 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
         _showPermissionDeniedDialog(perm);
         return;
       }
+    }
+
+    // Attempt to request storage/photos and notifications on-demand silently (without crashing or blocking on failure)
+    try {
+      if (Platform.isAndroid) {
+        await Permission.storage.request();
+      } else if (Platform.isIOS) {
+        await Permission.photos.request();
+      }
+      await Permission.notification.request();
+    } catch (_) {
+      // Non-blocking catch
     }
 
     setState(() {
@@ -275,20 +277,6 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                           icon: Icons.location_on_rounded,
                           title: 'Location Services',
                           description: 'Guarantees location compliance and anti-fraud detection during transactions.',
-                        ),
-                        const SizedBox(height: 20),
-                        _buildPermissionItem(
-                          icon: Platform.isAndroid ? Icons.folder_open_rounded : Icons.photo_library_rounded,
-                          title: Platform.isAndroid ? 'Storage Access' : 'Photo Library',
-                          description: Platform.isAndroid
-                              ? 'Allows secure temporary file caching and saving downloaded receipts.'
-                              : 'Allows seamless selection and uploading of saved payment or verification documents.',
-                        ),
-                        const SizedBox(height: 20),
-                        _buildPermissionItem(
-                          icon: Icons.notifications_active_rounded,
-                          title: 'Real-time Alerts',
-                          description: 'Keeps you updated instantly with transaction confirmations, bills, and notifications.',
                         ),
                       ],
                     ),
