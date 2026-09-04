@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -24,7 +25,7 @@ class WebviewScreen extends ConsumerStatefulWidget {
   ConsumerState<WebviewScreen> createState() => _WebviewScreenState();
 }
 
-class _WebviewScreenState extends ConsumerState<WebviewScreen> {
+class _WebviewScreenState extends ConsumerState<WebviewScreen> with WidgetsBindingObserver {
   InAppWebViewController? _webViewController;
   StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<String>? _redirectSubscription;
@@ -41,9 +42,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   // Base64 logo to render perfectly offline inside local HTML loaders
   String _logoBase64 = '';
 
+  bool _isInBackground = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _loadLogoAsset();
     _initConnectivity();
@@ -59,9 +63,27 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _connectivitySubscription?.cancel();
     _redirectSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (!_isInBackground && mounted) {
+        setState(() {
+          _isInBackground = true;
+        });
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      if (_isInBackground && mounted) {
+        setState(() {
+          _isInBackground = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadLogoAsset() async {
@@ -131,10 +153,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
           cacheMode: cacheMode,
         ),
       );
-      if (isConnected) {
-        // Silently synchronize and reload in background to update cached assets
-        await _webViewController!.reload();
-      }
     }
   }
 
@@ -144,40 +162,17 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
   void _showRuntimePermissionDeniedDialog(Permission permission) {
     final name = _getPermissionName(permission);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.white,
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
-            SizedBox(width: 12),
-            Text(
-              'Permission Required',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
-            ),
-          ],
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$name is required for this feature. Please grant it when prompted or in App Settings.'),
+        action: SnackBarAction(
+          label: 'Settings',
+          textColor: Colors.orange,
+          onPressed: () async {
+            await openAppSettings();
+          },
         ),
-        content: Text(
-          'E-Global Wallet requires the $name permission to proceed. Since it was denied, the application will now close.',
-          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () {
-              exit(0);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-            child: const Text('Exit App', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
       ),
     );
   }
@@ -225,17 +220,59 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     );
   }
 
+  String _sanitizeFileName(String rawName) {
+    var name = rawName.split('?').first.split('#').first;
+    name = name.replaceAll(RegExp(r'[\\/:\*\?"<>\|]'), '_');
+    name = name.replaceAll(RegExp(r'^\.+'), '');
+    if (name.trim().isEmpty) name = 'downloaded_receipt';
+    return name;
+  }
+
   Future<void> _handleDownload(String url, String? userAgent, String? contentDisposition, String? mimeType, int contentLength) async {
+    File? partialFile;
     try {
-      final permissionService = ref.read(permissionServiceProvider);
-      final hasStoragePermission = await permissionService.requestStoragePermission();
-      if (!hasStoragePermission) {
-        _showRuntimePermissionDeniedDialog(Permission.storage);
+      final uri = Uri.parse(url);
+      if (uri.scheme.toLowerCase() != 'https') {
+        AppLogger.e('Rejected insecure download URL: $url');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Insecure downloads are blocked.')),
+          );
+        }
         return;
       }
 
-      final uri = Uri.parse(url);
-      final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'downloaded_file';
+      final baseUri = Uri.parse(AppStrings.baseUrl);
+      final isOfficialHost = uri.host.toLowerCase() == baseUri.host.toLowerCase();
+      final isTrustedGateway = [
+        'paystack.com',
+        'flutterwave.com',
+        'monnify.com',
+      ].any((gw) => uri.host.toLowerCase().endsWith(gw));
+
+      if (!isOfficialHost && !isTrustedGateway) {
+        AppLogger.e('Rejected download from untrusted host: ${uri.host}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Download rejected: Untrusted domain.')),
+          );
+        }
+        return;
+      }
+
+      final permissionService = ref.read(permissionServiceProvider);
+      final hasStoragePermission = await permissionService.requestStoragePermission();
+      if (!hasStoragePermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Storage permission is required for downloading.')),
+          );
+        }
+        return;
+      }
+
+      final rawFileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'receipt.pdf';
+      final fileName = _sanitizeFileName(rawFileName);
 
       setState(() {
         _isDownloading = true;
@@ -245,35 +282,43 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
       final client = HttpClient();
       final request = await client.getUrl(uri);
+      if (userAgent != null && userAgent.isNotEmpty) {
+        request.headers.set('User-Agent', userAgent);
+      }
       final response = await request.close();
 
-      final bytes = <int>[];
-      final total = response.contentLength;
-      int received = 0;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('HTTP Error ${response.statusCode} while downloading file.');
+      }
 
       final dirPath = await _getDownloadDirectoryPath();
       final filePath = '$dirPath/$fileName';
-      final file = File(filePath);
+      partialFile = File(filePath);
 
-      // Create directories if they don't exist
-      await file.parent.create(recursive: true);
+      await partialFile.parent.create(recursive: true);
+      final sink = partialFile.openWrite();
 
-      await response.listen((List<int> chunk) {
-        bytes.addAll(chunk);
+      final total = response.contentLength > 0 ? response.contentLength : contentLength;
+      int received = 0;
+
+      await for (final chunk in response) {
+        sink.add(chunk);
         received += chunk.length;
-        setState(() {
-          _downloadProgress = total > 0 ? (received / total) : 0.5;
-        });
-      }).asFuture();
-
-      await file.writeAsBytes(bytes);
-
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 0.0;
-      });
+        if (total > 0 && mounted) {
+          setState(() {
+            _downloadProgress = (received / total).clamp(0.0, 1.0);
+          });
+        }
+      }
+      await sink.flush();
+      await sink.close();
 
       if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Downloaded: $fileName'),
@@ -288,14 +333,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
         );
       }
     } catch (e) {
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 0.0;
-      });
-      AppLogger.e('Download error', e);
+      if (partialFile != null && await partialFile.exists()) {
+        try {
+          await partialFile.delete();
+        } catch (_) {}
+      }
       if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        AppLogger.e('Download error', e);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Download failed: Network error or insufficient storage.')),
+          const SnackBar(content: Text('Download failed: Network error or non-200 server response.')),
         );
       }
     }
@@ -339,16 +389,33 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   Future<void> _handleUrlShare(String url, String fileName) async {
     try {
       final uri = Uri.parse(url);
+      if (uri.scheme.toLowerCase() != 'https') {
+        AppLogger.e('Rejected insecure receipt share URL: $url');
+        return;
+      }
+
+      final baseUri = Uri.parse(AppStrings.baseUrl);
+      if (uri.host.toLowerCase() != baseUri.host.toLowerCase()) {
+        AppLogger.e('Rejected receipt share from untrusted host: ${uri.host}');
+        return;
+      }
+
+      final safeName = _sanitizeFileName(fileName);
       final client = HttpClient();
       final request = await client.getUrl(uri);
       final response = await request.close();
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('HTTP Error ${response.statusCode} while fetching share receipt.');
+      }
+
       final bytes = <int>[];
       await response.listen((chunk) {
         bytes.addAll(chunk);
       }).asFuture();
 
       final tempDir = await getTemporaryDirectory();
-      final tempPath = '${tempDir.path}/$fileName';
+      final tempPath = '${tempDir.path}/$safeName';
       final file = File(tempPath);
       await file.writeAsBytes(bytes);
 
@@ -379,7 +446,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
+                color: AppColors.primary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.power_settings_new_rounded, color: AppColors.primary, size: 24),
@@ -421,49 +488,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     );
 
     if (shouldExit ?? false) {
-      exit(0);
+      SystemNavigator.pop();
     }
   }
 
-  // Inject CSS to override styles with premium iOS (San Francisco) and Android (Roboto) system fonts
-  void _injectSystemFonts() {
-    _webViewController?.evaluateJavascript(source: """
-      (function() {
-        const style = document.createElement('style');
-        style.type = 'text/css';
-        style.innerHTML = `
-          * {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Roboto", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
-          }
-        `;
-        document.head.appendChild(style);
-      })();
-    """);
-  }
-
-  // Disable input auto-fill overlays to prevent browser/keyboard password autofill popups on login forms
-  void _disableAutofillOverlays() {
-    _webViewController?.evaluateJavascript(source: """
-      (function() {
-        const disableAutofill = () => {
-          const inputs = document.querySelectorAll('input');
-          inputs.forEach(input => {
-            input.setAttribute('autocomplete', 'new-password');
-            input.setAttribute('autocorrect', 'off');
-            input.setAttribute('autocapitalize', 'off');
-            input.setAttribute('spellcheck', 'false');
-          });
-          const forms = document.querySelectorAll('form');
-          forms.forEach(form => {
-            form.setAttribute('autocomplete', 'off');
-          });
-        };
-        disableAutofill();
-        // Also run on dynamic mutations to cover late rendering / single page app navigation
-        const observer = new MutationObserver(disableAutofill);
-        observer.observe(document.body, { childList: true, subtree: true });
-      })();
-    """);
+  Future<bool> _isCurrentUrlTrusted(InAppWebViewController controller) async {
+    try {
+      final currentUrl = await controller.getUrl();
+      if (currentUrl == null) return false;
+      final expectedUri = Uri.parse(AppStrings.baseUrl);
+      return currentUrl.scheme == 'https' && currentUrl.host.toLowerCase() == expectedUri.host.toLowerCase();
+    } catch (e) {
+      AppLogger.e('Error validating URL origin', e);
+      return false;
+    }
   }
 
   // Fallback to beautiful branded screen if WebView fails to load, preventing Chromium Webpage not available from showing
@@ -523,12 +561,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
           <div class="gradient-spinner"></div>
           ${logoSrc.isNotEmpty ? '<img class="logo-icon" src="$logoSrc" alt="Logo" />' : ''}
         </div>
-        <script>
-          // Automatic periodic retry loading the main page in background silently
-          setInterval(function() {
-            window.location.replace("${AppStrings.baseUrl}");
-          }, 3500);
-        </script>
+        <div style="position: absolute; bottom: 40px; text-align: center;">
+          <p style="color: #666; font-size: 14px; margin-bottom: 12px;">Connection problem. Check your internet.</p>
+          <button onclick="window.location.replace('${AppStrings.baseUrl}')" style="background-color: #f67c01; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">Try Again</button>
+        </div>
       </body>
       </html>
     """);
@@ -563,8 +599,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     allowsLinkPreview: false,
                     safeBrowsingEnabled: true,
                     disableDefaultErrorPage: true,
-                    // Allow mixed content so all icons/fonts/scripts load without HTTP restrictions
-                    mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+                    // Enforce HTTPS-only content security and disallow mixed HTTP content
+                    mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
                     // Robust 100% offline support cache configuration
@@ -577,21 +613,71 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     supportZoom: false,
                     thirdPartyCookiesEnabled: true,
                     sharedCookiesEnabled: true,
-                    allowFileAccessFromFileURLs: true,
-                    allowUniversalAccessFromFileURLs: true,
+                    // Disallow local file system access from web context
+                    allowFileAccess: false,
+                    allowFileAccessFromFileURLs: false,
+                    allowUniversalAccessFromFileURLs: false,
                   ),
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
                     final uri = navigationAction.request.url;
-                    if (uri != null) {
-                      final urlString = uri.toString();
-                      if (urlString.startsWith('share:') || urlString.startsWith('eglobal://share')) {
-                        final queryParams = uri.queryParameters;
-                        final text = queryParams['text'] ?? queryParams['data'] ?? urlString.replaceFirst('share:', '');
-                        await _handleShare(Uri.decodeComponent(text));
-                        return NavigationActionPolicy.CANCEL;
-                      }
+                    if (uri == null) return NavigationActionPolicy.CANCEL;
+
+                    final scheme = uri.scheme.toLowerCase();
+                    final host = uri.host.toLowerCase();
+                    final urlString = uri.toString();
+
+                    // Handle native share triggers safely
+                    if (urlString.startsWith('share:') || urlString.startsWith('eglobal://share')) {
+                      final queryParams = uri.queryParameters;
+                      final text = queryParams['text'] ?? queryParams['data'] ?? urlString.replaceFirst('share:', '');
+                      await _handleShare(Uri.decodeComponent(text));
+                      return NavigationActionPolicy.CANCEL;
                     }
-                    return NavigationActionPolicy.ALLOW;
+
+                    // Always allow internal navigation within the primary wallet domain
+                    final baseUri = Uri.parse(AppStrings.baseUrl);
+                    if (scheme == 'https' && host == baseUri.host.toLowerCase()) {
+                      return NavigationActionPolicy.ALLOW;
+                    }
+
+                    // Handle standard safe external communications (tel, mailto, whatsapp, SMS)
+                    if (scheme == 'tel' || scheme == 'mailto' || scheme == 'sms' || scheme == 'whatsapp') {
+                      try {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      } catch (e) {
+                        AppLogger.e('Could not launch external protocol: $scheme', e);
+                      }
+                      return NavigationActionPolicy.CANCEL;
+                    }
+
+                    // Allow trusted third-party payment provider / KYC host gateways
+                    final trustedGateways = [
+                      'paystack.com',
+                      'flutterwave.com',
+                      'interswitchng.com',
+                      'monnify.com',
+                      'stripe.com',
+                      'verify.identitypass.ai',
+                      'smileidentity.com',
+                    ];
+
+                    if (scheme == 'https' && trustedGateways.any((gw) => host.endsWith(gw))) {
+                      return NavigationActionPolicy.ALLOW;
+                    }
+
+                    // For all other external HTTPS URLs, open in the external system browser to avoid untrusted web takeover
+                    if (scheme == 'https' || scheme == 'http') {
+                      try {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      } catch (e) {
+                        AppLogger.e('Could not launch external URL in browser', e);
+                      }
+                      return NavigationActionPolicy.CANCEL;
+                    }
+
+                    // Block file://, javascript:, data:, and unknown schemes
+                    AppLogger.e('Blocked unsafe/unknown navigation request to: $urlString');
+                    return NavigationActionPolicy.CANCEL;
                   },
                   onWebViewCreated: (controller) {
                     _webViewController = controller;
@@ -600,27 +686,39 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     final pushService = ref.read(pushNotificationServiceProvider);
                     pushService.setWebViewController(controller);
 
-                    // Expose 'getFcmToken' handler to the web app
+                    // Expose 'getFcmToken' handler to the web app with strict origin check
                     controller.addJavaScriptHandler(
                       handlerName: 'getFcmToken',
                       callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected getFcmToken from untrusted origin');
+                          return null;
+                        }
                         return await pushService.getFcmToken();
                       },
                     );
 
-                    // Expose 'requestNotificationPermission' handler to the web app
+                    // Expose 'requestNotificationPermission' handler to the web app with strict origin check
                     controller.addJavaScriptHandler(
                       handlerName: 'requestNotificationPermission',
                       callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected requestNotificationPermission from untrusted origin');
+                          return;
+                        }
                         final pushService = ref.read(pushNotificationServiceProvider);
                         await pushService.requestPermission();
                       },
                     );
 
-                    // Expose generic 'share' handler to the web app
+                    // Expose generic 'share' handler to the web app with origin validation
                     controller.addJavaScriptHandler(
                       handlerName: 'share',
                       callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected share request from untrusted origin');
+                          return;
+                        }
                         if (args.isNotEmpty) {
                           final shareData = args[0];
                           if (shareData is String) {
@@ -643,10 +741,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                       },
                     );
 
-                    // Expose receipt-specific 'shareReceipt' handler to the web app
+                    // Expose receipt-specific 'shareReceipt' handler to the web app with origin validation
                     controller.addJavaScriptHandler(
                       handlerName: 'shareReceipt',
                       callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected shareReceipt request from untrusted origin');
+                          return;
+                        }
                         if (args.isNotEmpty) {
                           final receiptData = args[0];
                           if (receiptData is String) {
@@ -678,12 +780,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                   },
                   onLoadStop: (controller, url) async {
                     webViewNotifier.setLoading(false);
-
-                    // Inject beautiful iOS/Android system font families right when the page fully loads
-                    _injectSystemFonts();
-
-                    // Disable autofill/autocomplete popups to stop showing browser/keyboard credential overlays
-                    _disableAutofillOverlays();
 
                     // Dismiss the native splash screen seamlessly once the page has fully loaded
                     FlutterNativeSplash.remove();
@@ -805,6 +901,33 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                   child: DownloadProgressBar(
                     progress: _downloadProgress,
                     fileName: _downloadingFileName,
+                  ),
+                ),
+              if (_isInBackground)
+                Positioned.fill(
+                  child: Container(
+                    color: AppColors.primary,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.asset(
+                            'assets/images/logo.png',
+                            width: 100,
+                            height: 100,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            AppStrings.appName,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
             ],
