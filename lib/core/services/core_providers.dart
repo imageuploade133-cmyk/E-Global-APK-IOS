@@ -21,7 +21,9 @@ final permissionServiceProvider = Provider<PermissionService>((ref) {
   return PermissionServiceImpl();
 });
 
-final pushNotificationServiceProvider = Provider<PushNotificationService>((ref) {
+final pushNotificationServiceProvider = Provider<PushNotificationService>((
+  ref,
+) {
   return PushNotificationServiceImpl(
     secureStorage: ref.watch(secureStorageProvider),
   );

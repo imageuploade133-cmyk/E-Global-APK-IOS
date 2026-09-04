@@ -30,11 +30,8 @@ class PermissionServiceImpl implements PermissionService {
 
   @override
   Future<bool> requestStoragePermission() async {
-    // Handling photo / storage permission based on SDKs
-    final status = await Permission.storage.request();
-    if (status.isGranted) return true;
-    final photosStatus = await Permission.photos.request();
-    return photosStatus.isGranted;
+    // Application uses app-private documents storage for downloads; broad external storage permissions are unnecessary.
+    return true;
   }
 
   @override

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -11,10 +10,12 @@ class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
   const PermissionsOnboardingScreen({super.key});
 
   @override
-  ConsumerState<PermissionsOnboardingScreen> createState() => _PermissionsOnboardingScreenState();
+  ConsumerState<PermissionsOnboardingScreen> createState() =>
+      _PermissionsOnboardingScreenState();
 }
 
-class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboardingScreen> {
+class _PermissionsOnboardingScreenState
+    extends ConsumerState<PermissionsOnboardingScreen> {
   bool _isRequesting = false;
 
   // Essential critical permissions that are required for the application's secure operations to function
@@ -36,7 +37,8 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
     bool allGranted = true;
     for (final perm in _permissions) {
       final status = await perm.status;
-      final isGranted = status.isGranted || status.isLimited || status.isRestricted;
+      final isGranted =
+          status.isGranted || status.isLimited || status.isRestricted;
       if (!isGranted) {
         allGranted = false;
         break;
@@ -66,7 +68,9 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
         });
         _showPermanentlyDeniedDialog(perm);
         return;
-      } else if (!status.isGranted && !status.isLimited && !status.isRestricted) {
+      } else if (!status.isGranted &&
+          !status.isLimited &&
+          !status.isRestricted) {
         setState(() {
           _isRequesting = false;
         });
@@ -75,13 +79,8 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
       }
     }
 
-    // Attempt to request storage/photos and notifications on-demand silently (without crashing or blocking on failure)
+    // Attempt to request notifications silently on onboarding
     try {
-      if (Platform.isAndroid) {
-        await Permission.storage.request();
-      } else if (Platform.isIOS) {
-        await Permission.photos.request();
-      }
       await Permission.notification.request();
     } catch (_) {
       // Non-blocking catch
@@ -98,7 +97,9 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
     final secureStorage = ref.read(secureStorageProvider);
     final biometrics = ref.read(biometricServiceProvider);
 
-    final biometricEnabledStr = await secureStorage.read(AppStrings.biometricKey);
+    final biometricEnabledStr = await secureStorage.read(
+      AppStrings.biometricKey,
+    );
     final biometricEnabled = biometricEnabledStr == 'true';
     final hasBiometrics = await biometrics.isBiometricsAvailable();
 
@@ -114,7 +115,10 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
   String _getPermissionName(Permission permission) {
     if (permission == Permission.camera) return 'Camera Access';
     if (permission == Permission.microphone) return 'Microphone Access';
-    if (permission == Permission.location || permission == Permission.locationWhenInUse) return 'Location Services';
+    if (permission == Permission.location ||
+        permission == Permission.locationWhenInUse) {
+      return 'Location Services';
+    }
     if (permission == Permission.storage) return 'Storage Access';
     if (permission == Permission.photos) return 'Photo Library';
     if (permission == Permission.notification) return 'Real-time Alerts';
@@ -131,17 +135,29 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
         backgroundColor: Colors.white,
         title: const Row(
           children: [
-            Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 28),
+            Icon(
+              Icons.info_outline_rounded,
+              color: AppColors.primary,
+              size: 28,
+            ),
             SizedBox(width: 12),
             Text(
               'Permission Recommended',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: AppColors.textLight,
+              ),
             ),
           ],
         ),
         content: Text(
           'E-Global Wallet works best with $name enabled. You can grant this permission now or continue to the wallet and enable it later when using features that require it.',
-          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
+          style: const TextStyle(
+            fontSize: 15,
+            color: Colors.black87,
+            height: 1.4,
+          ),
         ),
         actions: [
           TextButton(
@@ -162,10 +178,15 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
-            child: const Text('Try Again', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Try Again',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -182,17 +203,29 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
         backgroundColor: Colors.white,
         title: const Row(
           children: [
-            Icon(Icons.settings_suggest_rounded, color: AppColors.primary, size: 28),
+            Icon(
+              Icons.settings_suggest_rounded,
+              color: AppColors.primary,
+              size: 28,
+            ),
             SizedBox(width: 12),
             Text(
               'Enable Permission',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: AppColors.textLight,
+              ),
             ),
           ],
         ),
         content: Text(
           'The $name permission has been permanently disabled. You can open App Settings to enable it manually, or continue to the wallet.',
-          style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
+          style: const TextStyle(
+            fontSize: 15,
+            color: Colors.black87,
+            height: 1.4,
+          ),
         ),
         actions: [
           TextButton(
@@ -213,7 +246,9 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
             child: const Text(
@@ -234,9 +269,14 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24.0,
+                vertical: 32.0,
+              ),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight - 64),
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - 64,
+                ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -276,19 +316,22 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                         _buildPermissionItem(
                           icon: Icons.camera_alt_rounded,
                           title: 'Camera Access',
-                          description: 'Required for dynamic facial recognition verification and uploading document files.',
+                          description:
+                              'Required for dynamic facial recognition verification and uploading document files.',
                         ),
                         const SizedBox(height: 20),
                         _buildPermissionItem(
                           icon: Icons.mic_rounded,
                           title: 'Microphone Access',
-                          description: 'Used for support voice checks and verifying your dynamic banking identity.',
+                          description:
+                              'Used for support voice checks and verifying your dynamic banking identity.',
                         ),
                         const SizedBox(height: 20),
                         _buildPermissionItem(
                           icon: Icons.location_on_rounded,
                           title: 'Location Services',
-                          description: 'Guarantees location compliance and anti-fraud detection during transactions.',
+                          description:
+                              'Guarantees location compliance and anti-fraud detection during transactions.',
                         ),
                       ],
                     ),
@@ -299,7 +342,9 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                         const SizedBox(height: 40),
                         _isRequesting
                             ? const CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  AppColors.primary,
+                                ),
                               )
                             : Container(
                                 width: double.infinity,
@@ -307,11 +352,16 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(16),
                                   gradient: const LinearGradient(
-                                    colors: [AppColors.primary, Color(0xFFFF9100)],
+                                    colors: [
+                                      AppColors.primary,
+                                      Color(0xFFFF9100),
+                                    ],
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: AppColors.primary.withValues(alpha: 0.3),
+                                      color: AppColors.primary.withValues(
+                                        alpha: 0.3,
+                                      ),
                                       blurRadius: 12,
                                       offset: const Offset(0, 6),
                                     ),
@@ -370,11 +420,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
               color: AppColors.primary.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              size: 24,
-              color: AppColors.primary,
-            ),
+            child: Icon(icon, size: 24, color: AppColors.primary),
           ),
           const SizedBox(width: 16),
           Expanded(

@@ -28,23 +28,29 @@ void main() async {
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (e) {
-    AppLogger.e('Firebase initialization skipped or failed. Ensure configuration files are present.', e);
+    AppLogger.e(
+      'Firebase initialization skipped or failed. Ensure configuration files are present.',
+      e,
+    );
   }
 
-  // Set the app to true immersive full-screen mode immediately on boot to remove system bars
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // Configure standard edge-to-edge system UI layout for modern fintech experience
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  // Set the system status bar and navigation bar to transparent with dark icons for a bleached, clean look.
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    systemNavigationBarColor: Colors.transparent,
-    systemNavigationBarIconBrightness: Brightness.dark,
-  ));
+  // Set the system status bar and navigation bar to transparent with dark icons
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
 
-  runApp(const ProviderScope(
-    child: EGlobalWalletApp(initialRoute: '/permissions'),
-  ));
+  runApp(
+    const ProviderScope(child: EGlobalWalletApp(initialRoute: '/permissions')),
+  );
 }
 
 class EGlobalWalletApp extends ConsumerWidget {

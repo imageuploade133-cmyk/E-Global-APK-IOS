@@ -5,7 +5,8 @@ class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      fontFamily: '.SF Pro Text', // Native iOS San Francisco system font compatibility
+      fontFamily:
+          '.SF Pro Text', // Native iOS San Francisco system font compatibility
       colorScheme: const ColorScheme.light(
         primary: AppColors.primary,
         primaryContainer: AppColors.primaryContainer,
@@ -28,10 +29,28 @@ class AppTheme {
         ),
       ),
       textTheme: const TextTheme(
-        headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.textLight, fontFamily: '.SF Pro Display'),
-        titleLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textLight, fontFamily: '.SF Pro Display'),
-        bodyLarge: TextStyle(fontSize: 16, color: AppColors.textLight, fontFamily: '.SF Pro Text'),
-        bodyMedium: TextStyle(fontSize: 14, color: AppColors.textLight, fontFamily: '.SF Pro Text'),
+        headlineLarge: TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
+        ),
+        titleLarge: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
+        ),
       ),
     );
   }
@@ -39,7 +58,8 @@ class AppTheme {
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
-      fontFamily: '.SF Pro Text', // Native iOS San Francisco system font compatibility
+      fontFamily:
+          '.SF Pro Text', // Native iOS San Francisco system font compatibility
       colorScheme: const ColorScheme.dark(
         primary: AppColors.primary,
         secondary: AppColors.secondary,
@@ -61,10 +81,28 @@ class AppTheme {
         ),
       ),
       textTheme: const TextTheme(
-        headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: AppColors.textLight, fontFamily: '.SF Pro Display'),
-        titleLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.textLight, fontFamily: '.SF Pro Display'),
-        bodyLarge: TextStyle(fontSize: 16, color: AppColors.textLight, fontFamily: '.SF Pro Text'),
-        bodyMedium: TextStyle(fontSize: 14, color: AppColors.textLight, fontFamily: '.SF Pro Text'),
+        headlineLarge: TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
+        ),
+        titleLarge: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
+        ),
       ),
     );
   }

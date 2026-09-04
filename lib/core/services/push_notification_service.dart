@@ -19,17 +19,19 @@ abstract class PushNotificationService {
 
 class PushNotificationServiceImpl implements PushNotificationService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
   final SecureStorageService _secureStorage;
 
   InAppWebViewController? _webViewController;
   String? _lastToken;
 
   // Stream controller to broadcast destination paths to the WebView
-  final StreamController<String> _redirectController = StreamController<String>.broadcast();
+  final StreamController<String> _redirectController =
+      StreamController<String>.broadcast();
 
   PushNotificationServiceImpl({required SecureStorageService secureStorage})
-      : _secureStorage = secureStorage;
+    : _secureStorage = secureStorage;
 
   @override
   void setWebViewController(InAppWebViewController controller) {
@@ -43,11 +45,14 @@ class PushNotificationServiceImpl implements PushNotificationService {
     if (_webViewController != null) {
       try {
         AppLogger.i('Syncing FCM token via WebView JavaScript Bridge...');
-        await _webViewController!.evaluateJavascript(source: """
+        await _webViewController!.evaluateJavascript(
+          source:
+              """
           if (typeof window !== 'undefined' && window.__syncFcmToken) {
             window.__syncFcmToken('$token');
           }
-        """);
+        """,
+        );
       } catch (e) {
         AppLogger.e('Error evaluating sync JS in WebView', e);
       }
@@ -108,10 +113,13 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       if (settings.authorizationStatus == AuthorizationStatus.authorized) {
         AppLogger.i('User granted notification permissions.');
-      } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+      } else if (settings.authorizationStatus ==
+          AuthorizationStatus.provisional) {
         AppLogger.i('User granted provisional notification permissions.');
       } else {
-        AppLogger.i('User declined or has not accepted notification permissions.');
+        AppLogger.i(
+          'User declined or has not accepted notification permissions.',
+        );
       }
     } catch (e) {
       AppLogger.e('Error requesting notification permission', e);
@@ -147,11 +155,12 @@ class PushNotificationServiceImpl implements PushNotificationService {
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    const DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
+    const DarwinInitializationSettings iosSettings =
+        DarwinInitializationSettings(
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+        );
 
     const InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
@@ -181,7 +190,8 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       await _localNotifications
           .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>()
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.createNotificationChannel(channel);
     }
   }
@@ -189,7 +199,9 @@ class PushNotificationServiceImpl implements PushNotificationService {
   void _setupFirebaseListeners() {
     // 1. Listen to messages in the foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      AppLogger.i('Foreground notification received: ${message.notification?.title}');
+      AppLogger.i(
+        'Foreground notification received: ${message.notification?.title}',
+      );
 
       final notification = message.notification;
       final android = message.notification?.android;
@@ -203,7 +215,8 @@ class PushNotificationServiceImpl implements PushNotificationService {
             android: AndroidNotificationDetails(
               'eglobal_wallet_high_channel',
               'E-Global Wallet Notifications',
-              channelDescription: 'This channel is used for important wallet updates.',
+              channelDescription:
+                  'This channel is used for important wallet updates.',
               importance: Importance.max,
               priority: Priority.high,
               icon: android?.smallIcon ?? '@mipmap/ic_launcher',
@@ -222,7 +235,9 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
     // 2. Listen to notification taps when app is in background but running
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      AppLogger.i('Notification tapped from background state: ${message.notification?.title}');
+      AppLogger.i(
+        'Notification tapped from background state: ${message.notification?.title}',
+      );
       _handleNotificationPayload(message.data);
     });
   }
@@ -243,7 +258,10 @@ class PushNotificationServiceImpl implements PushNotificationService {
   void _handleNotificationPayload(Map<String, dynamic> data) {
     try {
       // Extract route or notification type to map to the correct WebView sub-path
-      final String type = (data['type'] ?? data['notification_type'] ?? '').toString().toLowerCase().trim();
+      final String type = (data['type'] ?? data['notification_type'] ?? '')
+          .toString()
+          .toLowerCase()
+          .trim();
 
       String redirectPath = '';
 
@@ -285,14 +303,18 @@ class PushNotificationServiceImpl implements PushNotificationService {
           break;
         default:
           final rawPath = (data['path'] ?? '').toString().trim();
-          final cleanPath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
+          final cleanPath = rawPath.startsWith('/')
+              ? rawPath.substring(1)
+              : rawPath;
           redirectPath = cleanPath;
           break;
       }
 
       // Enforce route allow-list validation to prevent arbitrary open redirects
       if (!_allowedRoutes.contains(redirectPath)) {
-        AppLogger.e('Rejected untrusted notification route path: $redirectPath');
+        AppLogger.e(
+          'Rejected untrusted notification route path: $redirectPath',
+        );
         redirectPath = 'notifications';
       }
 
@@ -304,7 +326,8 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   void _handleNotificationPayloadWithString(String payloadString) {
     try {
-      final Map<String, dynamic> data = jsonDecode(payloadString) as Map<String, dynamic>;
+      final Map<String, dynamic> data =
+          jsonDecode(payloadString) as Map<String, dynamic>;
       _handleNotificationPayload(data);
     } catch (e) {
       AppLogger.e('Error processing JSON payload: $payloadString', e);
