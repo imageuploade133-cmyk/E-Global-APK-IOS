@@ -77,7 +77,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       // 4. Automatically listen and securely persist/refresh FCM token
       _fcm.onTokenRefresh.listen((newToken) async {
-        AppLogger.i('FCM Token Refreshed: $newToken');
+        AppLogger.i('FCM token refreshed');
         await _secureStorage.write('fcm_token', newToken);
         await sendTokenToBackend(newToken);
       });
@@ -85,7 +85,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
       // Fetch current token silently
       final currentToken = await getFcmToken();
       if (currentToken != null) {
-        AppLogger.i('Current FCM Token: $currentToken');
+        AppLogger.i('FCM token initialized');
         await sendTokenToBackend(currentToken);
       }
     } catch (e) {
@@ -137,7 +137,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
     try {
       _lastToken = token;
       await _syncTokenWithWebView(token);
-      AppLogger.i('FCM Token successfully cached and queued for WebView synchronization: $token');
+      AppLogger.i('FCM token cached and synchronized');
     } catch (e) {
       AppLogger.e('Error syncing FCM token to WebView', e);
     }
@@ -227,6 +227,19 @@ class PushNotificationServiceImpl implements PushNotificationService {
     });
   }
 
+  static const Set<String> _allowedRoutes = {
+    'notifications',
+    'deposit',
+    'transfers',
+    'airtime',
+    'data',
+    'electricity',
+    'cable-tv',
+    'orders',
+    'kyc',
+    'security',
+  };
+
   void _handleNotificationPayload(Map<String, dynamic> data) {
     try {
       // Extract route or notification type to map to the correct WebView sub-path
@@ -271,9 +284,16 @@ class PushNotificationServiceImpl implements PushNotificationService {
           redirectPath = 'security';
           break;
         default:
-          // Fallback to notification hub or home
-          redirectPath = data['path'] ?? 'notifications';
+          final rawPath = (data['path'] ?? '').toString().trim();
+          final cleanPath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
+          redirectPath = cleanPath;
           break;
+      }
+
+      // Enforce route allow-list validation to prevent arbitrary open redirects
+      if (!_allowedRoutes.contains(redirectPath)) {
+        AppLogger.e('Rejected untrusted notification route path: $redirectPath');
+        redirectPath = 'notifications';
       }
 
       _redirectController.add(redirectPath);

@@ -13,3 +13,6 @@
 # local_auth Proguard Rules
 -keep class androidx.biometric.** { *; }
 -dontwarn androidx.biometric.**
+
+# Play Core Proguard Rules
+-dontwarn com.google.android.play.core.**

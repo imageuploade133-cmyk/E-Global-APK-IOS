@@ -125,36 +125,47 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
     final name = _getPermissionName(permission);
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         backgroundColor: Colors.white,
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+            Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 28),
             SizedBox(width: 12),
             Text(
-              'Permission Required',
+              'Permission Recommended',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textLight),
             ),
           ],
         ),
         content: Text(
-          'E-Global Wallet requires the $name permission to ensure safe, secure, and compliant financial operations. Since this permission was rejected, the application will now close.',
+          'E-Global Wallet works best with $name enabled. You can grant this permission now or continue to the wallet and enable it later when using features that require it.',
           style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _proceedToApp();
+            },
+            child: const Text(
+              'Continue Anyway',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+          ),
           ElevatedButton(
             onPressed: () {
-              exit(0); // Instantly and effectively close the app
+              Navigator.of(context).pop();
+              _requestAllPermissions();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
-            child: const Text('Exit App', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('Try Again', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -165,7 +176,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
     final name = _getPermissionName(permission);
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         backgroundColor: Colors.white,
@@ -180,23 +191,24 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
           ],
         ),
         content: Text(
-          'The $name permission has been permanently denied. E-Global Wallet requires this permission to function. Please open App Settings to enable it manually, or exit the application.',
+          'The $name permission has been permanently disabled. You can open App Settings to enable it manually, or continue to the wallet.',
           style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () {
-              exit(0);
+              Navigator.of(context).pop();
+              _proceedToApp();
             },
             child: const Text(
-              'Exit App',
+              'Continue to Wallet',
               style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
             ),
           ),
           ElevatedButton(
             onPressed: () async {
+              Navigator.of(context).pop();
               await openAppSettings();
-              exit(0); // On opening settings, close the app so it restarts with fresh settings
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -299,7 +311,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                                   ),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: AppColors.primary.withOpacity(0.3),
+                                      color: AppColors.primary.withValues(alpha: 0.3),
                                       blurRadius: 12,
                                       offset: const Offset(0, 6),
                                     ),
@@ -355,7 +367,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.08),
+              color: AppColors.primary.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
             child: Icon(
