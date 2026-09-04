@@ -64,6 +64,14 @@ android {
             val releaseSigning = signingConfigs.findByName("release")
             if (releaseSigning != null && releaseSigning.storeFile != null && releaseSigning.storeFile!!.exists()) {
                 signingConfig = releaseSigning
+            } else {
+                val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+                if (isReleaseTask) {
+                    throw GradleException(
+                        "Release build failed: Missing key.properties or valid release keystore file. " +
+                        "Release builds must be signed with a valid production keystore."
+                    )
+                }
             }
         }
     }

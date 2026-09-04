@@ -6,9 +6,19 @@ class WebViewState {
   final bool hasError;
   final String errorMessage;
 
-  const WebViewState({this.progress = 0.0, this.isLoading = true, this.hasError = false, this.errorMessage = ''});
+  const WebViewState({
+    this.progress = 0.0,
+    this.isLoading = true,
+    this.hasError = false,
+    this.errorMessage = '',
+  });
 
-  WebViewState copyWith({double? progress, bool? isLoading, bool? hasError, String? errorMessage}) {
+  WebViewState copyWith({
+    double? progress,
+    bool? isLoading,
+    bool? hasError,
+    String? errorMessage,
+  }) {
     return WebViewState(
       progress: progress ?? this.progress,
       isLoading: isLoading ?? this.isLoading,
@@ -34,6 +44,8 @@ class WebViewNotifier extends StateNotifier<WebViewState> {
   }
 }
 
-final webViewProvider = StateNotifierProvider<WebViewNotifier, WebViewState>((ref) {
+final webViewProvider = StateNotifierProvider<WebViewNotifier, WebViewState>((
+  ref,
+) {
   return WebViewNotifier();
 });

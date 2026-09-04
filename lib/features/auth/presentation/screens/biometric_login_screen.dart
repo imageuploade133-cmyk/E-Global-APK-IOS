@@ -9,7 +9,8 @@ class BiometricLoginScreen extends ConsumerStatefulWidget {
   const BiometricLoginScreen({super.key});
 
   @override
-  ConsumerState<BiometricLoginScreen> createState() => _BiometricLoginScreenState();
+  ConsumerState<BiometricLoginScreen> createState() =>
+      _BiometricLoginScreenState();
 }
 
 class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
@@ -65,11 +66,7 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Image.asset(
-                'assets/images/logo.png',
-                width: 120,
-                height: 120,
-              ),
+              Image.asset('assets/images/logo.png', width: 120, height: 120),
               const SizedBox(height: 32),
               const Text(
                 AppStrings.appName,
@@ -84,16 +81,15 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
               const Text(
                 'Secure Access Verification',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
               const SizedBox(height: 64),
               if (_isAuthenticating)
                 const Center(
                   child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.primary,
+                    ),
                   ),
                 )
               else
@@ -121,7 +117,10 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
                 },
                 child: const Text(
                   'Use Password Fallback',
-                  style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
