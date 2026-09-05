@@ -51,7 +51,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void _restoreSystemUi() {
     if (_hasRestoredSystemUi) return;
     _hasRestoredSystemUi = true;
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -176,7 +179,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       final currentUrl = await _webViewController!.getUrl();
       if (currentUrl != null) {
-        final path = currentUrl.path.toLowerCase();
+        final urlStr = currentUrl.toString().toLowerCase();
         final sensitiveKeywords = [
           'transfer',
           'deposit',
@@ -192,7 +195,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           'pin',
           'transaction',
         ];
-        if (sensitiveKeywords.any((keyword) => path.contains(keyword))) {
+        if (sensitiveKeywords.any((keyword) => urlStr.contains(keyword))) {
           return true;
         }
       }
@@ -207,7 +210,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           return false;
         })();
       """);
-      if (jsResult == true) {
+      final val = jsResult?.value;
+      if (val == true || val == 'true') {
         return true;
       }
     } catch (e) {
@@ -498,7 +502,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final sanitizedText = text
           .replaceAll(AppStrings.baseUrl, '')
           .replaceAll('https://e-global-197077.vercel.app/', '');
-      await Share.share(sanitizedText, subject: 'E-Global Wallet Receipt');
+      await Share.share(sanitizedText, subject: 'E-Global Pay Receipt');
     } catch (e) {
       AppLogger.e('Error sharing text', e);
     }
@@ -526,7 +530,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
       await Share.shareXFiles([
         XFile(tempPath),
-      ], text: 'E-Global Wallet Receipt');
+      ], text: 'E-Global Pay Receipt');
     } catch (e) {
       AppLogger.e('Error sharing base64 receipt', e);
     }
@@ -592,7 +596,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
       await Share.shareXFiles([
         XFile(tempPath),
-      ], text: 'E-Global Wallet Receipt');
+      ], text: 'E-Global Pay Receipt');
     } catch (e) {
       if (tempFile != null && await tempFile.exists()) {
         try {
@@ -645,7 +649,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           ],
         ),
         content: const Text(
-          'Are you sure you want to close E-Global Wallet? Any unsaved operations may be lost.',
+          'Are you sure you want to close E-Global Pay? Any unsaved operations may be lost.',
           style: TextStyle(fontSize: 14, color: Colors.grey, height: 1.4),
         ),
         actions: [
@@ -744,8 +748,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
             window.flutter_inappwebview.callHandler('getRememberedEmail').then(function(savedEmail) {
               if (savedEmail && savedEmail.length > 0) {
                 emailInputs.forEach(function(input) {
-                  if (!input.value || input.value.trim() === '') {
+                  if (!input.dataset.emailPopulated && (!input.value || input.value.trim() === '')) {
                     input.value = savedEmail;
+                    input.dataset.emailPopulated = 'true';
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     input.dispatchEvent(new Event('change', { bubbles: true }));
                   }
@@ -780,11 +785,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           }
 
           setupRememberEmail();
-          if (document.readyState !== 'complete') {
-            window.addEventListener('load', setupRememberEmail);
-          }
-          var observer = new MutationObserver(setupRememberEmail);
-          observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
         })();
       """);
     } catch (e) {
@@ -810,7 +810,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>E-Global Wallet</title>
+        <title>E-Global Pay</title>
         <style>
           body {
             background-color: #ffffff;
@@ -828,23 +828,23 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
             display: flex;
             justify-content: center;
             align-items: center;
-            width: 100px;
-            height: 100px;
+            width: 60px;
+            height: 60px;
           }
           .gradient-spinner {
-            width: 72px;
-            height: 72px;
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
-            padding: 4px;
+            padding: 3px;
             background: conic-gradient(from 0deg, #f67c01, #ffcc80, transparent 65%);
-            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 0);
-            mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 0);
+            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
+            mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
             animation: spin 1s linear infinite;
           }
           .logo-icon {
             position: absolute;
-            width: 36px;
-            height: 36px;
+            width: 22px;
+            height: 22px;
             object-fit: contain;
           }
           @keyframes spin {
@@ -883,7 +883,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           child: Stack(
             children: [
               Positioned.fill(
-                child: InAppWebView(
+                child: SafeArea(
+                  top: true,
+                  bottom: true,
+                  child: InAppWebView(
                   initialUrlRequest: URLRequest(
                     url: WebUri(AppStrings.baseUrl),
                   ),
@@ -926,6 +929,35 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                     final scheme = uri.scheme.toLowerCase();
                     final urlString = uri.toString();
+                    final path = uri.path.toLowerCase();
+
+                    // In offline mode, strictly block new server-changing or sensitive operations
+                    if (!_isOnline) {
+                      final sensitiveKeywords = [
+                        'transfer',
+                        'deposit',
+                        'withdraw',
+                        'airtime',
+                        'data',
+                        'electricity',
+                        'cable',
+                        'bill',
+                        'kyc',
+                        'pin',
+                        'otp',
+                      ];
+                      if (sensitiveKeywords.any((keyword) => path.contains(keyword))) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Active internet connection required for financial operations.'),
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                        return NavigationActionPolicy.CANCEL;
+                      }
+                    }
 
                     // Handle native share triggers safely
                     if (urlString.startsWith('share:') ||
@@ -1186,15 +1218,26 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     webViewNotifier.setProgress(progress / 100);
                   },
                   onReceivedError: (controller, request, error) {
-                    // Suppress all browser errors and ignore load errors.
-                    // This guarantees that the user is always presented with the last cached/rendered page
-                    // and never sees any default browser error pages containing raw web URLs or standard crash alerts.
+                    // Suppress browser error pages and serve cached content if available.
                     AppLogger.e(
-                      'WebView silent non-blocking error handled: ${error.description}',
+                      'WebView error handled: ${error.description}',
                     );
 
                     if (request.isForMainFrame ?? true) {
-                      _loadElegantFallback();
+                      if (!_isOnline) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Internet connection required to load new pages.',
+                              ),
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      } else {
+                        _loadElegantFallback();
+                      }
                     }
                   },
                   onReceivedHttpError: (controller, request, errorResponse) {
@@ -1222,7 +1265,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           borderRadius: BorderRadius.circular(15),
                         ),
                         title: const Text(
-                          'E-Global Wallet',
+                          'E-Global Pay',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         content: Text(jsAlertRequest.message ?? ''),
@@ -1252,7 +1295,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           borderRadius: BorderRadius.circular(15),
                         ),
                         title: const Text(
-                          'E-Global Wallet',
+                          'E-Global Pay',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         content: Text(jsConfirmRequest.message ?? ''),
@@ -1295,7 +1338,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           borderRadius: BorderRadius.circular(15),
                         ),
                         title: const Text(
-                          'E-Global Wallet',
+                          'E-Global Pay',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         content: Column(
@@ -1350,6 +1393,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                 ),
               ),
+              ),
               if (_isDownloading)
                 Align(
                   alignment: Alignment.bottomCenter,
@@ -1368,8 +1412,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         children: [
                           Image.asset(
                             'assets/images/logo.png',
-                            width: 100,
-                            height: 100,
+                            width: 52,
+                            height: 52,
                           ),
                           const SizedBox(height: 16),
                           const Text(
