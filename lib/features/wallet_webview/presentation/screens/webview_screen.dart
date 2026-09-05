@@ -46,21 +46,39 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String _logoBase64 = '';
 
   bool _isInBackground = false;
+  bool _hasRestoredSystemUi = false;
+
+  void _restoreSystemUi() {
+    if (_hasRestoredSystemUi) return;
+    _hasRestoredSystemUi = true;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.dark,
+      ),
+    );
+    try {
+      FlutterNativeSplash.remove();
+    } catch (_) {}
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _loadLogoAsset();
     _initConnectivity();
     _initPushNotifications();
 
-    // Safety fallback: Ensure native splash screen is always removed after a short timeout under all circumstances
+    // Safety fallback: Ensure native splash screen is removed and system UI restored after a short timeout
     Timer(const Duration(seconds: 3), () {
-      try {
-        FlutterNativeSplash.remove();
-      } catch (_) {}
+      if (mounted) {
+        _restoreSystemUi();
+      }
     });
   }
 
@@ -153,6 +171,51 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
+  Future<bool> _isTransactionActive() async {
+    if (_webViewController == null) return false;
+    try {
+      final currentUrl = await _webViewController!.getUrl();
+      if (currentUrl != null) {
+        final path = currentUrl.path.toLowerCase();
+        final sensitiveKeywords = [
+          'transfer',
+          'deposit',
+          'payment',
+          'pay',
+          'bill',
+          'withdraw',
+          'otp',
+          'verify',
+          'receipt',
+          'checkout',
+          'confirm',
+          'pin',
+          'transaction',
+        ];
+        if (sensitiveKeywords.any((keyword) => path.contains(keyword))) {
+          return true;
+        }
+      }
+      final jsResult = await _webViewController!.evaluateJavascript(source: """
+        (function() {
+          var activeEl = document.activeElement;
+          if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+            return true;
+          }
+          var otpInputs = document.querySelectorAll('input[name*="otp" i], input[id*="otp" i], input[autocomplete="one-time-code"]');
+          if (otpInputs.length > 0) return true;
+          return false;
+        })();
+      """);
+      if (jsResult == true) {
+        return true;
+      }
+    } catch (e) {
+      AppLogger.e('Error checking transaction active status', e);
+    }
+    return false;
+  }
+
   Future<void> _handleConnectivityChange(bool isConnected) async {
     if (_webViewController != null) {
       final cacheMode = isConnected
@@ -161,6 +224,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(cacheMode: cacheMode),
       );
+
+      if (isConnected) {
+        final isTransaction = await _isTransactionActive();
+        if (!isTransaction) {
+          AppLogger.i('Network restored on idle page. Safely refreshing wallet WebView.');
+          await _webViewController!.reload();
+        } else {
+          AppLogger.i('Network restored during transaction. Deferred automatic reload to protect transaction state.');
+        }
+      }
     }
   }
 
@@ -620,6 +693,105 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
+  Future<void> _injectSecurityAndAutofillScripts(
+    InAppWebViewController controller,
+  ) async {
+    try {
+      await controller.evaluateJavascript(source: """
+        (function() {
+          function applyFormSecurity() {
+            var forms = document.querySelectorAll('form');
+            forms.forEach(function(f) {
+              f.setAttribute('autocomplete', 'off');
+            });
+            var inputs = document.querySelectorAll('input');
+            inputs.forEach(function(i) {
+              var t = (i.type || '').toLowerCase();
+              var n = (i.name || '').toLowerCase();
+              var id = (i.id || '').toLowerCase();
+              if (t === 'password' || n.includes('pass') || n.includes('pin') || id.includes('pin')) {
+                i.setAttribute('autocomplete', 'new-password');
+                i.setAttribute('data-lpignore', 'true');
+                i.setAttribute('autofill', 'off');
+              } else if (n.includes('otp') || id.includes('otp') || i.getAttribute('autocomplete') === 'one-time-code') {
+                i.setAttribute('autocomplete', 'one-time-code');
+              } else if (t === 'email' || n.includes('email') || id.includes('email')) {
+                i.setAttribute('autocomplete', 'off');
+              }
+            });
+          }
+          applyFormSecurity();
+          if (document.readyState !== 'complete') {
+            window.addEventListener('load', applyFormSecurity);
+          }
+        })();
+      """);
+    } catch (e) {
+      AppLogger.e('Error injecting form security script', e);
+    }
+  }
+
+  Future<void> _injectRememberEmailScript(
+    InAppWebViewController controller,
+  ) async {
+    try {
+      await controller.evaluateJavascript(source: """
+        (function() {
+          function setupRememberEmail() {
+            var emailInputs = document.querySelectorAll('input[type="email"], input[name*="email" i], input[id*="email" i]');
+            if (emailInputs.length === 0) return;
+
+            window.flutter_inappwebview.callHandler('getRememberedEmail').then(function(savedEmail) {
+              if (savedEmail && savedEmail.length > 0) {
+                emailInputs.forEach(function(input) {
+                  if (!input.value || input.value.trim() === '') {
+                    input.value = savedEmail;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                  }
+                });
+              }
+            });
+
+            emailInputs.forEach(function(input) {
+              if (input.dataset.rememberEmailAttached) return;
+              input.dataset.rememberEmailAttached = 'true';
+
+              function handleEmailChange() {
+                var val = input.value ? input.value.trim() : '';
+                if (val.length > 0 && val.indexOf('@') !== -1) {
+                  window.flutter_inappwebview.callHandler('saveRememberedEmail', val);
+                } else if (val.length === 0) {
+                  window.flutter_inappwebview.callHandler('clearRememberedEmail');
+                }
+              }
+
+              input.addEventListener('blur', handleEmailChange);
+              input.addEventListener('change', handleEmailChange);
+
+              var form = input.closest('form');
+              if (form && !form.dataset.rememberEmailAttached) {
+                form.dataset.rememberEmailAttached = 'true';
+                form.addEventListener('submit', function() {
+                  handleEmailChange();
+                });
+              }
+            });
+          }
+
+          setupRememberEmail();
+          if (document.readyState !== 'complete') {
+            window.addEventListener('load', setupRememberEmail);
+          }
+          var observer = new MutationObserver(setupRememberEmail);
+          observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        })();
+      """);
+    } catch (e) {
+      AppLogger.e('Error injecting remember email script', e);
+    }
+  }
+
   // Fallback to beautiful branded screen if WebView fails to load, preventing Chromium Webpage not available from showing
   void _loadElegantFallback() {
     final cleanLogoBase64 = _logoBase64.replaceAll(
@@ -638,7 +810,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>Loading</title>
+        <title>E-Global Wallet</title>
         <style>
           body {
             background-color: #ffffff;
@@ -685,15 +857,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           <div class="gradient-spinner"></div>
           ${logoSrc.isNotEmpty ? '<img class="logo-icon" src="$logoSrc" alt="Logo" />' : ''}
         </div>
-        <div style="position: absolute; bottom: 40px; text-align: center;">
-          <p style="color: #666; font-size: 14px; margin-bottom: 12px;">Connection problem. Check your internet.</p>
-          <button id="retryBtn" style="background-color: #f67c01; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer;">Try Again</button>
+        <div style="position: absolute; bottom: 40px; text-align: center; width: 100%;">
+          <p style="color: #666; font-size: 14px; margin: 0;">Connecting... Reconnecting automatically when online.</p>
         </div>
-        <script>
-          document.getElementById('retryBtn').addEventListener('click', function() {
-            window.location.href = "${AppStrings.baseUrl}";
-          });
-        </script>
       </body>
       </html>
     """,
@@ -732,6 +898,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     allowsLinkPreview: false,
                     safeBrowsingEnabled: true,
                     disableDefaultErrorPage: true,
+                    saveFormData: false,
                     // Enforce HTTPS-only content security and disallow mixed HTTP content
                     mixedContentMode:
                         MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
@@ -901,6 +1068,68 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
+                    // Expose 'getRememberedEmail' handler for secure email restoration
+                    controller.addJavaScriptHandler(
+                      handlerName: 'getRememberedEmail',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected getRememberedEmail from untrusted origin',
+                          );
+                          return '';
+                        }
+                        final secureStorage = ref.read(secureStorageProvider);
+                        return (await secureStorage.read(
+                              AppStrings.savedEmailKey,
+                            )) ??
+                            '';
+                      },
+                    );
+
+                    // Expose 'saveRememberedEmail' handler for secure email persistence
+                    controller.addJavaScriptHandler(
+                      handlerName: 'saveRememberedEmail',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected saveRememberedEmail from untrusted origin',
+                          );
+                          return;
+                        }
+                        if (args.isNotEmpty && args[0] is String) {
+                          final email = (args[0] as String).trim();
+                          if (email.isNotEmpty && email.contains('@')) {
+                            final secureStorage = ref.read(
+                              secureStorageProvider,
+                            );
+                            await secureStorage.write(
+                              AppStrings.savedEmailKey,
+                              email,
+                            );
+                            AppLogger.i(
+                              'Securely stored remembered user email address',
+                            );
+                          }
+                        }
+                      },
+                    );
+
+                    // Expose 'clearRememberedEmail' handler to clear saved email
+                    controller.addJavaScriptHandler(
+                      handlerName: 'clearRememberedEmail',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected clearRememberedEmail from untrusted origin',
+                          );
+                          return;
+                        }
+                        final secureStorage = ref.read(secureStorageProvider);
+                        await secureStorage.delete(AppStrings.savedEmailKey);
+                        AppLogger.i('Cleared remembered user email address');
+                      },
+                    );
+
                     // Expose receipt-specific 'shareReceipt' handler to the web app with origin validation
                     controller.addJavaScriptHandler(
                       handlerName: 'shareReceipt',
@@ -946,8 +1175,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStop: (controller, url) async {
                     webViewNotifier.setLoading(false);
 
-                    // Dismiss the native splash screen seamlessly once the page has fully loaded
-                    FlutterNativeSplash.remove();
+                    // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
+                    _restoreSystemUi();
+
+                    // Inject form security, autofill prevention, and email restoration scripts
+                    await _injectSecurityAndAutofillScripts(controller);
+                    await _injectRememberEmailScript(controller);
                   },
                   onProgressChanged: (controller, progress) {
                     webViewNotifier.setProgress(progress / 100);

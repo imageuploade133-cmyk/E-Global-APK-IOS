@@ -4,6 +4,7 @@ class AppStrings {
   static const String packageIdentifier = 'com.eglobal.wallet';
   static const String biometricKey = 'biometric_enabled';
   static const String credentialsKey = 'secure_wallet_credentials';
+  static const String savedEmailKey = 'remembered_user_email';
 
   static const List<String> trustedExternalGateways = [
     'paystack.com',

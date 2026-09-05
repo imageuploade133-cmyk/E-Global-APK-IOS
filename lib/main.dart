@@ -34,19 +34,8 @@ void main() async {
     );
   }
 
-  // Configure standard edge-to-edge system UI layout for modern fintech experience
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-
-  // Set the system status bar and navigation bar to transparent with dark icons
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.light,
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
-  );
+  // Start in immersive full-screen mode during native startup / splash screen
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
   runApp(
     const ProviderScope(child: EGlobalWalletApp(initialRoute: '/permissions')),
