@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,8 +43,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   static const Color bleachWhite = Colors.white;
 
-  // Base64 logo to render perfectly offline inside local HTML loaders
-  String _logoBase64 = '';
 
   bool _isInBackground = false;
   bool _hasRestoredSystemUi = false;
@@ -73,16 +72,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadLogoAsset();
     _initConnectivity();
     _initPushNotifications();
-
-    // Safety fallback: Ensure native splash screen is removed and system UI restored after a short timeout
-    Timer(const Duration(seconds: 3), () {
-      if (mounted) {
-        _restoreSystemUi();
-      }
-    });
   }
 
   @override
@@ -111,19 +102,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
-  Future<void> _loadLogoAsset() async {
-    try {
-      final bytes = await rootBundle.load('assets/images/logo.png');
-      final list = bytes.buffer.asUint8List();
-      if (mounted) {
-        setState(() {
-          _logoBase64 = base64Encode(list);
-        });
-      }
-    } catch (e) {
-      AppLogger.e('Error converting logo to base64', e);
-    }
-  }
 
   Future<void> _initConnectivity() async {
     final connectivity = ref.read(connectivityServiceProvider);
@@ -759,80 +737,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
-  // Fallback to beautiful branded screen if WebView fails to load, preventing Chromium Webpage not available from showing
-  void _loadElegantFallback() {
-    final cleanLogoBase64 = _logoBase64.replaceAll(
-      RegExp(r'[^A-Za-z0-9+/=]'),
-      '',
-    );
-    final logoSrc = cleanLogoBase64.isNotEmpty
-        ? "data:image/png;base64,$cleanLogoBase64"
-        : "";
-
-    _webViewController?.loadData(
-      data:
-          """
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <title>E-Global Pay</title>
-        <style>
-          body {
-            background-color: #ffffff;
-            margin: 0;
-            padding: 0;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-          }
-          .loader-container {
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 60px;
-            height: 60px;
-          }
-          .gradient-spinner {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            padding: 3px;
-            background: conic-gradient(from 0deg, #f67c01, #ffcc80, transparent 65%);
-            -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
-            mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0);
-            animation: spin 1s linear infinite;
-          }
-          .logo-icon {
-            position: absolute;
-            width: 22px;
-            height: 22px;
-            object-fit: contain;
-          }
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="loader-container">
-          <div class="gradient-spinner"></div>
-          ${logoSrc.isNotEmpty ? '<img class="logo-icon" src="$logoSrc" alt="Logo" />' : ''}
-        </div>
-        <div style="position: absolute; bottom: 40px; text-align: center; width: 100%;">
-          <p style="color: #666; font-size: 14px; margin: 0;">Connecting... Reconnecting automatically when online.</p>
-        </div>
-      </body>
-      </html>
-    """,
-      baseUrl: WebUri(AppStrings.baseUrl),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -857,6 +761,41 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   initialUrlRequest: URLRequest(
                     url: WebUri(AppStrings.baseUrl),
                   ),
+                  initialUserScripts: UnmodifiableListView<UserScript>([
+                    UserScript(
+                      source: """
+                        (function() {
+                          var style = document.createElement('style');
+                          style.id = 'eglobal-hide-scrollbars';
+                          style.innerHTML = `
+                            html, body, div, p, span, iframe, section, article, nav, aside, main, header, footer, form, input, textarea, select {
+                              scrollbar-width: none !important;
+                              -ms-overflow-style: none !important;
+                              -webkit-touch-callout: none !important;
+                            }
+                            ::-webkit-scrollbar {
+                              display: none !important;
+                              width: 0px !important;
+                              height: 0px !important;
+                              background: transparent !important;
+                            }
+                            ::-webkit-scrollbar-thumb {
+                              display: none !important;
+                              width: 0px !important;
+                              height: 0px !important;
+                            }
+                            ::-webkit-scrollbar-track {
+                              display: none !important;
+                              width: 0px !important;
+                              height: 0px !important;
+                            }
+                          `;
+                          (document.head || document.documentElement).appendChild(style);
+                        })();
+                      """,
+                      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                    ),
+                  ]),
                   initialSettings: InAppWebViewSettings(
                     useShouldOverrideUrlLoading: true,
                     mediaPlaybackRequiresUserGesture: false,
@@ -875,6 +814,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
+                    scrollbarFadingEnabled: false,
+                    scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
                     // Robust 100% offline support cache configuration
                     cacheMode: _getCurrentCacheMode(),
                     // Remove all window/viewport margins, backgrounds, and styling issues
@@ -1186,25 +1127,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     webViewNotifier.setProgress(progress / 100);
                   },
                   onReceivedError: (controller, request, error) {
-                    // Suppress browser error pages and serve cached content if available.
                     AppLogger.e(
                       'WebView error handled: ${error.description}',
                     );
-
                     if (request.isForMainFrame ?? true) {
-                      if (!_isOnline) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Internet connection required to load new pages.',
-                              ),
-                              duration: Duration(seconds: 3),
+                      if (!_isOnline && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Internet connection required to load new pages.',
                             ),
-                          );
-                        }
-                      } else {
-                        _loadElegantFallback();
+                            duration: Duration(seconds: 3),
+                          ),
+                        );
                       }
                     }
                   },
@@ -1212,9 +1147,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     AppLogger.e(
                       'WebView HTTP error handled: ${errorResponse.statusCode}',
                     );
-                    if (request.isForMainFrame ?? true) {
-                      _loadElegantFallback();
-                    }
                   },
                   onReceivedServerTrustAuthRequest: (controller, challenge) async {
                     AppLogger.e(
