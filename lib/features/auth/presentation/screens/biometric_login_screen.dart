@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wallet/core/constants/app_colors.dart';
@@ -19,7 +20,11 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
   @override
   void initState() {
     super.initState();
-    // Dismiss splash screen since we are checking biometrics
+    // Dismiss splash screen and restore normal system UI
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
     FlutterNativeSplash.remove();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _authenticate();

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -48,7 +49,11 @@ class _PermissionsOnboardingScreenState
     if (allGranted) {
       await _proceedToApp();
     } else {
-      // If not all granted, show the onboarding UI and remove splash screen
+      // If onboarding UI needs to be displayed, restore normal system UI and remove splash screen
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
       FlutterNativeSplash.remove();
     }
   }
