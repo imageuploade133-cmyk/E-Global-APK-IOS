@@ -228,16 +228,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(cacheMode: cacheMode),
       );
-
-      if (isConnected) {
-        final isTransaction = await _isTransactionActive();
-        if (!isTransaction) {
-          AppLogger.i('Network restored on idle page. Safely refreshing wallet WebView.');
-          await _webViewController!.reload();
-        } else {
-          AppLogger.i('Network restored during transaction. Deferred automatic reload to protect transaction state.');
-        }
-      }
     }
   }
 
@@ -499,13 +489,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   Future<void> _handleShare(String text) async {
     try {
-      final sanitizedText = text
-          .replaceAll(AppStrings.baseUrl, '')
-          .replaceAll('https://e-global-197077.vercel.app/', '');
+      final sanitizedText = _sanitizeStringForDisplayOrShare(text);
       await Share.share(sanitizedText, subject: 'E-Global Pay Receipt');
     } catch (e) {
       AppLogger.e('Error sharing text', e);
     }
+  }
+
+  String _sanitizeStringForDisplayOrShare(String input) {
+    var result = input;
+    result = result.replaceAll(AppStrings.baseUrl, '');
+    result = result.replaceAll('https://e-global-197077.vercel.app/', '');
+    result = result.replaceAll('https://e-global-197077.vercel.app', '');
+    result = result.replaceAll('e-global-197077.vercel.app', '');
+    return result;
   }
 
   Future<void> _handleBase64Share(String base64Data, String fileName) async {
@@ -703,30 +700,45 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       await controller.evaluateJavascript(source: """
         (function() {
-          function applyFormSecurity() {
+          function applyFormSecurityAndUI() {
+            // Disable scrollbars globally via CSS
+            if (!document.getElementById('eglobal-hide-scrollbars')) {
+              var style = document.createElement('style');
+              style.id = 'eglobal-hide-scrollbars';
+              style.innerHTML = `
+                ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+                * {
+                  scrollbar-width: none !important;
+                  -ms-overflow-style: none !important;
+                  -webkit-touch-callout: none !important;
+                }
+              `;
+              (document.head || document.documentElement).appendChild(style);
+            }
+
+            // Disable form autofill globally
             var forms = document.querySelectorAll('form');
             forms.forEach(function(f) {
               f.setAttribute('autocomplete', 'off');
             });
             var inputs = document.querySelectorAll('input');
             inputs.forEach(function(i) {
+              i.setAttribute('autocomplete', 'off');
+              i.setAttribute('autofill', 'off');
+              i.setAttribute('data-lpignore', 'true');
               var t = (i.type || '').toLowerCase();
               var n = (i.name || '').toLowerCase();
               var id = (i.id || '').toLowerCase();
               if (t === 'password' || n.includes('pass') || n.includes('pin') || id.includes('pin')) {
                 i.setAttribute('autocomplete', 'new-password');
-                i.setAttribute('data-lpignore', 'true');
-                i.setAttribute('autofill', 'off');
               } else if (n.includes('otp') || id.includes('otp') || i.getAttribute('autocomplete') === 'one-time-code') {
                 i.setAttribute('autocomplete', 'one-time-code');
-              } else if (t === 'email' || n.includes('email') || id.includes('email')) {
-                i.setAttribute('autocomplete', 'off');
               }
             });
           }
-          applyFormSecurity();
+          applyFormSecurityAndUI();
           if (document.readyState !== 'complete') {
-            window.addEventListener('load', applyFormSecurity);
+            window.addEventListener('load', applyFormSecurityAndUI);
           }
         })();
       """);
@@ -902,6 +914,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     safeBrowsingEnabled: true,
                     disableDefaultErrorPage: true,
                     saveFormData: false,
+                    disableContextMenu: true,
                     // Enforce HTTPS-only content security and disallow mixed HTTP content
                     mixedContentMode:
                         MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
@@ -1258,6 +1271,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                   },
                   onJsAlert: (controller, jsAlertRequest) async {
+                    final msg = _sanitizeStringForDisplayOrShare(
+                      jsAlertRequest.message ?? '',
+                    );
                     showDialog(
                       context: context,
                       builder: (context) => AlertDialog(
@@ -1268,7 +1284,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           'E-Global Pay',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        content: Text(jsAlertRequest.message ?? ''),
+                        content: Text(msg),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.of(context).pop(),
@@ -1288,6 +1304,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                   },
                   onJsConfirm: (controller, jsConfirmRequest) async {
+                    final msg = _sanitizeStringForDisplayOrShare(
+                      jsConfirmRequest.message ?? '',
+                    );
                     final bool? result = await showDialog<bool>(
                       context: context,
                       builder: (context) => AlertDialog(
@@ -1298,7 +1317,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           'E-Global Pay',
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        content: Text(jsConfirmRequest.message ?? ''),
+                        content: Text(msg),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.of(context).pop(false),
@@ -1327,6 +1346,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                   },
                   onJsPrompt: (controller, jsPromptRequest) async {
+                    final msg = _sanitizeStringForDisplayOrShare(
+                      jsPromptRequest.message ?? '',
+                    );
                     final TextEditingController textController =
                         TextEditingController(
                           text: jsPromptRequest.defaultValue,
@@ -1345,7 +1367,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Text(jsPromptRequest.message ?? ''),
+                            Text(msg),
                             const SizedBox(height: 8),
                             TextField(controller: textController),
                           ],
