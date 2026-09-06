@@ -52,7 +52,7 @@ class EGlobalWalletApp extends ConsumerWidget {
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp(
-      title: 'E-Global Wallet',
+      title: 'E-Global Pay',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
