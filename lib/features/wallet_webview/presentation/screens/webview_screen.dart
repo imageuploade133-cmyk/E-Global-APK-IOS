@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -760,6 +761,41 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   initialUrlRequest: URLRequest(
                     url: WebUri(AppStrings.baseUrl),
                   ),
+                  initialUserScripts: UnmodifiableListView<UserScript>([
+                    UserScript(
+                      source: """
+                        (function() {
+                          var style = document.createElement('style');
+                          style.id = 'eglobal-hide-scrollbars';
+                          style.innerHTML = `
+                            html, body, div, p, span, iframe, section, article, nav, aside, main, header, footer, form, input, textarea, select {
+                              scrollbar-width: none !important;
+                              -ms-overflow-style: none !important;
+                              -webkit-touch-callout: none !important;
+                            }
+                            ::-webkit-scrollbar {
+                              display: none !important;
+                              width: 0px !important;
+                              height: 0px !important;
+                              background: transparent !important;
+                            }
+                            ::-webkit-scrollbar-thumb {
+                              display: none !important;
+                              width: 0px !important;
+                              height: 0px !important;
+                            }
+                            ::-webkit-scrollbar-track {
+                              display: none !important;
+                              width: 0px !important;
+                              height: 0px !important;
+                            }
+                          `;
+                          (document.head || document.documentElement).appendChild(style);
+                        })();
+                      """,
+                      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                    ),
+                  ]),
                   initialSettings: InAppWebViewSettings(
                     useShouldOverrideUrlLoading: true,
                     mediaPlaybackRequiresUserGesture: false,
@@ -778,6 +814,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
+                    scrollbarFadingEnabled: false,
+                    scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
                     // Robust 100% offline support cache configuration
                     cacheMode: _getCurrentCacheMode(),
                     // Remove all window/viewport margins, backgrounds, and styling issues
