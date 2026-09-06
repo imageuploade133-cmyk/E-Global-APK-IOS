@@ -174,51 +174,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
-  Future<bool> _isTransactionActive() async {
-    if (_webViewController == null) return false;
-    try {
-      final currentUrl = await _webViewController!.getUrl();
-      if (currentUrl != null) {
-        final urlStr = currentUrl.toString().toLowerCase();
-        final sensitiveKeywords = [
-          'transfer',
-          'deposit',
-          'payment',
-          'pay',
-          'bill',
-          'withdraw',
-          'otp',
-          'verify',
-          'receipt',
-          'checkout',
-          'confirm',
-          'pin',
-          'transaction',
-        ];
-        if (sensitiveKeywords.any((keyword) => urlStr.contains(keyword))) {
-          return true;
-        }
-      }
-      final jsResult = await _webViewController!.evaluateJavascript(source: """
-        (function() {
-          var activeEl = document.activeElement;
-          if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
-            return true;
-          }
-          var otpInputs = document.querySelectorAll('input[name*="otp" i], input[id*="otp" i], input[autocomplete="one-time-code"]');
-          if (otpInputs.length > 0) return true;
-          return false;
-        })();
-      """);
-      final val = jsResult?.value;
-      if (val == true || val == 'true') {
-        return true;
-      }
-    } catch (e) {
-      AppLogger.e('Error checking transaction active status', e);
-    }
-    return false;
-  }
 
   Future<void> _handleConnectivityChange(bool isConnected) async {
     if (_webViewController != null) {
