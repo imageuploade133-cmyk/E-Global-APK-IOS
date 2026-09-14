@@ -28,7 +28,7 @@ class BiometricsServiceImpl implements BiometricsService {
   Future<bool> authenticate() async {
     try {
       return await _auth.authenticate(
-        localizedReason: 'Authenticate to access E-Global Wallet securely',
+        localizedReason: 'Authenticate to access E-Global Pay securely',
       );
     } on PlatformException {
       return false;

@@ -3,7 +3,7 @@ import 'dart:developer' as developer;
 class AppLogger {
   static void d(String message) {
     assert(() {
-      developer.log('[DEBUG] $message', name: 'E-Global Wallet');
+      developer.log('[DEBUG] $message', name: 'E-Global Pay');
       return true;
     }());
   }
@@ -18,6 +18,6 @@ class AppLogger {
   }
 
   static void i(String message) {
-    developer.log('[INFO] $message', name: 'E-Global Wallet');
+    developer.log('[INFO] $message', name: 'E-Global Pay');
   }
 }

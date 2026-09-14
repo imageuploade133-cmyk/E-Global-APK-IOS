@@ -307,7 +307,7 @@ class _PermissionsOnboardingScreenState
                         ),
                         const SizedBox(height: 12),
                         const Text(
-                          'To enable a highly secure and functional banking experience, E-Global Wallet requires the following device permissions:',
+                          'To enable a highly secure and functional banking experience, E-Global Pay requires the following device permissions:',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 15,

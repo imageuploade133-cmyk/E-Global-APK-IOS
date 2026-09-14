@@ -37,6 +37,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
   bool _isDownloading = false;
+  
+  // Connection and loading state management
+  bool _hasConnectionIssue = false;
+  Timer? _loadingTimer;
+  String _currentUrl = '';
+  
+  // List of allowed domains to keep inside the app
+  // IMPORTANT: Replace with your actual domain(s)
+  // Based on your baseUrl, you should update this to match your webapp domain
+  final List<String> _allowedDomains = [
+    'e-global-197077.vercel.app',
+    'www.e-global-197077.vercel.app',
+  ];
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const int _maxFileSizeBytes = 25 * 1024 * 1024; // 25 MB max limit
@@ -408,6 +421,32 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         );
       }
     }
+  }
+
+  String _extractFileName(Uri uri, String? contentDisposition) {
+    // Try to extract filename from Content-Disposition header first
+    if (contentDisposition != null && contentDisposition.isNotEmpty) {
+      final fileNameRegex = RegExp(r'filename[^;=\n]*=(["']?)([^;\n"]*)\1');
+      final matches = fileNameRegex.allMatches(contentDisposition);
+      if (matches.isNotEmpty) {
+        final match = matches.first.group(1);
+        if (match != null) {
+          return match.replaceAll('"', '').replaceAll("'", '');
+        }
+      }
+    }
+    
+    // Fallback to extracting from URL
+    final pathSegments = uri.pathSegments;
+    if (pathSegments.isNotEmpty) {
+      final fileName = pathSegments.last;
+      if (fileName.isNotEmpty && fileName.contains('.')) {
+        return Uri.decodeComponent(fileName);
+      }
+    }
+    
+    // Default fallback
+    return 'downloaded_file_${DateTime.now().millisecondsSinceEpoch}';
   }
 
   Future<String> _getDownloadDirectoryPath() async {
@@ -1341,6 +1380,22 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
             ],
           ),
         ),
+        // Show connection issue overlay when page takes too long to load or network fails
+        if (_hasConnectionIssue)
+          Container(
+            color: Colors.white,
+            child: WebviewErrorOverlay(
+              title: 'Connection Issue',
+              description: 'Something went wrong. Please check your internet connection and try again.',
+              onRetry: () {
+                setState(() {
+                  _hasConnectionIssue = false;
+                });
+                _startLoadingTimer();
+                _webViewController?.reload();
+              },
+            ),
+          ),
       ),
     );
   }

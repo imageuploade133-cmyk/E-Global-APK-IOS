@@ -7,8 +7,11 @@
 -keep class io.flutter.provider.**  { *; }
 -keep class io.flutter.plugin.editing.** { *; }
 
-# InAppWebView Proguard Rules
+# InAppWebView Proguard Rules - CRITICAL for WebView performance
 -keep class com.pichillilorenzo.flutter_inappwebview.** { *; }
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
 
 # local_auth Proguard Rules
 -keep class androidx.biometric.** { *; }
