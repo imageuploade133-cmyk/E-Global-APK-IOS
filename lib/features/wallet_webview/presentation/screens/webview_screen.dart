@@ -231,7 +231,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   String _extractFileName(Uri uri, String? contentDisposition) {
     // Try to extract filename from Content-Disposition header first
     if (contentDisposition != null && contentDisposition.isNotEmpty) {
-      final fileNameRegex = RegExp(r'filename[^;=\n]*=["\']?([^"\';\n]*)["\']?');
+      final fileNameRegex = RegExp(r"filename[^;=\n]*=[\"']?([^\"';\n]*)[\"']?");
       final matches = fileNameRegex.allMatches(contentDisposition);
       if (matches.isNotEmpty) {
         final match = matches.first.group(1);
@@ -622,25 +622,25 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                     fileName: _downloadingFileName,
                   ),
                 ),
+              // Show connection issue overlay when page takes too long to load or network fails
+              if (_hasConnectionIssue)
+                Container(
+                  color: Colors.white,
+                  child: WebviewErrorOverlay(
+                    title: 'Connection Issue',
+                    description: 'Something went wrong. Please check your internet connection and try again.',
+                    onRetry: () {
+                      setState(() {
+                        _hasConnectionIssue = false;
+                      });
+                      _startLoadingTimer();
+                      _webViewController?.reload();
+                    },
+                  ),
+                ),
             ],
           ),
         ),
-        // Show connection issue overlay when page takes too long to load or network fails
-        if (_hasConnectionIssue)
-          Container(
-            color: Colors.white,
-            child: WebviewErrorOverlay(
-              title: 'Connection Issue',
-              description: 'Something went wrong. Please check your internet connection and try again.',
-              onRetry: () {
-                setState(() {
-                  _hasConnectionIssue = false;
-                });
-                _startLoadingTimer();
-                _webViewController?.reload();
-              },
-            ),
-          ),
       ),
     );
   }
