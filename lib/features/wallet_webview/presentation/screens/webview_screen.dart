@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -29,11 +31,83 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
   bool _isDownloading = false;
+  
+  // Connection and loading state management
+  bool _hasConnectionIssue = false;
+  Timer? _loadingTimer;
+  String _currentUrl = '';
+  
+  // List of allowed domains to keep inside the app
+  // IMPORTANT: Replace with your actual domain(s)
+  // Based on your baseUrl, you should update this to match your webapp domain
+  final List<String> _allowedDomains = [
+    'e-global-197077.vercel.app',
+    'www.e-global-197077.vercel.app',
+  ];
 
   @override
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _startLoadingTimer();
+  }
+  
+  @override
+  void dispose() {
+    _loadingTimer?.cancel();
+    super.dispose();
+  }
+  
+  void _startLoadingTimer() {
+    _loadingTimer?.cancel();
+    _loadingTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && ref.read(webViewProvider.notifier).state.isLoading) {
+        setState(() {
+          _hasConnectionIssue = true;
+        });
+      }
+    });
+  }
+  
+  void _stopLoadingTimer() {
+    _loadingTimer?.cancel();
+    _loadingTimer = null;
+  }
+  
+  bool _isAllowedDomain(String url) {
+    try {
+      final uri = Uri.parse(url);
+      // Allow relative links, about:blank, or data URLs
+      if (uri.scheme.isEmpty || uri.scheme == 'about' || uri.scheme == 'data') {
+        return true;
+      }
+      
+      final domain = uri.host.toLowerCase().replaceFirst('www.', '');
+      
+      for (var allowed in _allowedDomains) {
+        final cleanAllowed = allowed.toLowerCase().replaceFirst('www.', '');
+        if (domain == cleanAllowed || domain.endsWith('.$cleanAllowed')) {
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  void _launchExternalUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication, // Forces external tab/browser
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open link')),
+      );
+    }
   }
 
   Future<PermissionResponse?> _handlePermissionRequest(
@@ -64,33 +138,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
   Future<void> _handleDownload(String url, String? userAgent, String? contentDisposition, String? mimeType, int contentLength) async {
     try {
-      final permissionService = ref.read(permissionServiceProvider);
-      final hasStoragePermission = await permissionService.requestStoragePermission();
-      if (!hasStoragePermission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Storage permission is required to download files.')),
-          );
-        }
-        return;
-      }
-
       final uri = Uri.parse(url);
-      final fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'downloaded_file';
-
+      final fileName = _extractFileName(uri, contentDisposition);
+      
       setState(() {
         _isDownloading = true;
         _downloadingFileName = fileName;
         _downloadProgress = 0.1;
       });
-
-      final client = HttpClient();
-      final request = await client.getUrl(uri);
-      final response = await request.close();
-
-      final bytes = <int>[];
-      final total = response.contentLength;
-      int received = 0;
 
       final dirPath = await _getDownloadDirectoryPath();
       final filePath = '$dirPath/$fileName';
@@ -99,15 +154,46 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       // Create directories if they don't exist
       await file.parent.create(recursive: true);
 
-      await response.listen((List<int> chunk) {
-        bytes.addAll(chunk);
-        received += chunk.length;
-        setState(() {
-          _downloadProgress = total > 0 ? (received / total) : 0.5;
-        });
-      }).asFuture();
+      final client = HttpClient();
+      final request = await client.getUrl(uri);
+      
+      // Set headers to mimic browser request
+      if (userAgent != null && userAgent.isNotEmpty) {
+        request.headers.set('user-agent', userAgent);
+      }
+      request.headers.set('Accept', '*/*');
+      
+      final response = await request.close();
 
-      await file.writeAsBytes(bytes);
+      final total = response.contentLength > 0 ? response.contentLength : contentLength;
+      int received = 0;
+
+      // Stream directly to file with throttled progress updates to prevent UI jank
+      final sink = file.openWrite();
+      int lastProgressUpdate = 0;
+      try {
+        await response.listen((List<int> chunk) {
+          received += chunk.length;
+          if (total > 0) {
+            final progress = (received / total * 100).toInt();
+            // Only update UI every 5% to prevent excessive setState calls
+            if (progress - lastProgressUpdate >= 5) {
+              lastProgressUpdate = progress;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  setState(() {
+                    _downloadProgress = received / total;
+                  });
+                }
+              });
+            }
+          }
+        }).forEach(sink.add);
+        
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
 
       setState(() {
         _isDownloading = false;
@@ -142,6 +228,32 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     }
   }
 
+  String _extractFileName(Uri uri, String? contentDisposition) {
+    // Try to extract filename from Content-Disposition header first
+    if (contentDisposition != null && contentDisposition.isNotEmpty) {
+      final fileNameRegex = RegExp(r'filename[^;=\n]*=(["']?)([^;\n"]*)\1');
+      final matches = fileNameRegex.allMatches(contentDisposition);
+      if (matches.isNotEmpty) {
+        final match = matches.first.group(1);
+        if (match != null) {
+          return match.replaceAll('"', '').replaceAll("'", '');
+        }
+      }
+    }
+    
+    // Fallback to extracting from URL
+    final pathSegments = uri.pathSegments;
+    if (pathSegments.isNotEmpty) {
+      final fileName = pathSegments.last;
+      if (fileName.isNotEmpty && fileName.contains('.')) {
+        return Uri.decodeComponent(fileName);
+      }
+    }
+    
+    // Default fallback
+    return 'downloaded_file_${DateTime.now().millisecondsSinceEpoch}';
+  }
+
   Future<String> _getDownloadDirectoryPath() async {
     // Standard secure application documents directory works perfectly on Android 10+
     // (Scoped Storage compliant), iOS, and macOS with zero filesystem write restrictions or crashes.
@@ -151,7 +263,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
   Future<void> _handleShare(String text) async {
     try {
-      await Share.share(text, subject: 'E-Global Wallet Receipt');
+      await Share.share(text, subject: 'E-Global Pay Receipt');
     } catch (e) {
       AppLogger.e('Error sharing text', e);
     }
@@ -167,7 +279,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       final file = File(tempPath);
       await file.writeAsBytes(bytes);
 
-      await Share.shareXFiles([XFile(tempPath)], text: 'E-Global Wallet Receipt');
+      await Share.shareXFiles([XFile(tempPath)], text: 'E-Global Pay Receipt');
     } catch (e) {
       AppLogger.e('Error sharing base64 receipt', e);
     }
@@ -179,17 +291,22 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       final client = HttpClient();
       final request = await client.getUrl(uri);
       final response = await request.close();
-      final bytes = <int>[];
-      await response.listen((chunk) {
-        bytes.addAll(chunk);
-      }).asFuture();
 
       final tempDir = await getTemporaryDirectory();
       final tempPath = '${tempDir.path}/$fileName';
       final file = File(tempPath);
-      await file.writeAsBytes(bytes);
+      await file.parent.create(recursive: true);
 
-      await Share.shareXFiles([XFile(tempPath)], text: 'E-Global Wallet Receipt');
+      // Stream directly to file - DO NOT accumulate in memory
+      final sink = file.openWrite();
+      try {
+        await response.listen((List<int> chunk) => sink.add(chunk)).asFuture();
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+
+      await Share.shareXFiles([XFile(tempPath)], text: 'E-Global Pay Receipt');
     } catch (e) {
       AppLogger.e('Error sharing URL receipt', e);
     }
@@ -229,7 +346,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
           ],
         ),
         content: const Text(
-          'Are you sure you want to close E-Global Wallet? Any unsaved operations may be lost.',
+          'Are you sure you want to close E-Global Pay? Any unsaved operations may be lost.',
           style: TextStyle(fontSize: 14, color: Colors.grey, height: 1.4),
         ),
         actions: [
@@ -296,22 +413,61 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         verticalScrollBarEnabled: false,
                         horizontalScrollBarEnabled: false,
                         cacheMode: CacheMode.LOAD_DEFAULT,
+                        hardwareAcceleration: true,
                       ),
                       shouldOverrideUrlLoading: (controller, navigationAction) async {
                         final uri = navigationAction.request.url;
                         if (uri != null) {
                           final urlString = uri.toString();
+                          
+                          // Handle custom share schemes
                           if (urlString.startsWith('share:') || urlString.startsWith('eglobal://share')) {
                             final queryParams = uri.queryParameters;
                             final text = queryParams['text'] ?? queryParams['data'] ?? urlString.replaceFirst('share:', '');
                             await _handleShare(Uri.decodeComponent(text));
                             return NavigationActionPolicy.CANCEL;
                           }
+                          
+                          // Check if it's an external domain - open in external browser
+                          if (!_isAllowedDomain(urlString)) {
+                            _launchExternalUrl(urlString);
+                            return NavigationActionPolicy.CANCEL;
+                          }
                         }
                         return NavigationActionPolicy.ALLOW;
                       },
-                      onWebViewCreated: (controller) {
+                      onWebViewCreated: (controller) async {
                         _webViewController = controller;
+
+                        // Inject CSS to hide scrollbars globally in the web content
+                        await controller.evaluateJavascript(
+                          source: """
+                            (function() {
+                              var style = document.createElement('style');
+                              style.textContent = '''
+                                * {
+                                  scrollbar-width: none !important;
+                                  -ms-overflow-style: none !important;
+                                }
+                                ::-webkit-scrollbar {
+                                  width: 0 !important;
+                                  height: 0 !important;
+                                }
+                                ::-webkit-scrollbar-thumb {
+                                  display: none !important;
+                                }
+                                ::-webkit-scrollbar-track {
+                                  display: none !important;
+                                }
+                                html, body {
+                                  overflow: auto !important;
+                                  -webkit-overflow-scrolling: touch !important;
+                                }
+                              ''';
+                              document.head.appendChild(style);
+                            })();
+                          """,
+                        );
 
                         // Expose generic 'share' handler to the web app
                         controller.addJavaScriptHandler(
@@ -362,11 +518,59 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         );
                       },
                       onLoadStart: (controller, url) {
+                        _currentUrl = url.toString();
                         webViewNotifier.setLoading(true);
                         webViewNotifier.setError(false);
+                        // Reset connection issue flag when new page starts loading
+                        if (_hasConnectionIssue) {
+                          setState(() {
+                            _hasConnectionIssue = false;
+                          });
+                        }
+                        // Restart the loading timer for each new page
+                        _startLoadingTimer();
                       },
                       onLoadStop: (controller, url) async {
+                        _stopLoadingTimer();
                         webViewNotifier.setLoading(false);
+                        // Reset connection issue flag when page loads successfully
+                        if (_hasConnectionIssue) {
+                          setState(() {
+                            _hasConnectionIssue = false;
+                          });
+                        }
+                        // Re-inject CSS to hide scrollbars after each page load
+                        await controller.evaluateJavascript(
+                          source: """
+                            (function() {
+                              var existingStyle = document.getElementById('hide-scrollbar-style');
+                              if (existingStyle) return;
+                              var style = document.createElement('style');
+                              style.id = 'hide-scrollbar-style';
+                              style.textContent = '''
+                                * {
+                                  scrollbar-width: none !important;
+                                  -ms-overflow-style: none !important;
+                                }
+                                ::-webkit-scrollbar {
+                                  width: 0 !important;
+                                  height: 0 !important;
+                                }
+                                ::-webkit-scrollbar-thumb {
+                                  display: none !important;
+                                }
+                                ::-webkit-scrollbar-track {
+                                  display: none !important;
+                                }
+                                html, body {
+                                  overflow: auto !important;
+                                  -webkit-overflow-scrolling: touch !important;
+                                }
+                              ''';
+                              document.head.appendChild(style);
+                            })();
+                          """,
+                        );
                       },
                       onProgressChanged: (controller, progress) {
                         webViewNotifier.setProgress(progress / 100);
@@ -376,6 +580,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
                         // This prevents minor sub-resource load failures (e.g., ad scripts, analytics, missing icons, font issues)
                         // from interrupting the user experience with a blocking error screen.
                         if (request.isForMainFrame ?? true) {
+                          _stopLoadingTimer();
+                          setState(() {
+                            _hasConnectionIssue = true;
+                          });
                           webViewNotifier.setError(true, error.description);
                         }
                       },
@@ -417,6 +625,22 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
             ],
           ),
         ),
+        // Show connection issue overlay when page takes too long to load or network fails
+        if (_hasConnectionIssue)
+          Container(
+            color: Colors.white,
+            child: WebviewErrorOverlay(
+              title: 'Connection Issue',
+              description: 'Something went wrong. Please check your internet connection and try again.',
+              onRetry: () {
+                setState(() {
+                  _hasConnectionIssue = false;
+                });
+                _startLoadingTimer();
+                _webViewController?.reload();
+              },
+            ),
+          ),
       ),
     );
   }

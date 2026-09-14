@@ -29,7 +29,25 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
     });
 
     final biometricService = ref.read(biometricServiceProvider);
-    final authenticated = await biometricService.authenticate();
+    
+    // Use withTimeout to prevent hanging on slow biometric sensors
+    final authenticated = await biometricService.authenticate().timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        setState(() {
+          _isAuthenticating = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Biometric authentication timed out. Please retry.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return false;
+      },
+    );
 
     setState(() {
       _isAuthenticating = false;
