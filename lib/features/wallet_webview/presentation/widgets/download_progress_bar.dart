@@ -4,7 +4,11 @@ class DownloadProgressBar extends StatelessWidget {
   final double progress;
   final String fileName;
 
-  const DownloadProgressBar({super.key, required this.progress, required this.fileName});
+  const DownloadProgressBar({
+    super.key,
+    required this.progress,
+    required this.fileName,
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -9,7 +9,12 @@ class AppLogger {
   }
 
   static void e(String message, [Object? error, StackTrace? stackTrace]) {
-    developer.log('[ERROR] $message', name: 'E-Global Pay', error: error, stackTrace: stackTrace);
+    developer.log(
+      '[ERROR] $message',
+      name: 'E-Global Wallet',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   static void i(String message) {
