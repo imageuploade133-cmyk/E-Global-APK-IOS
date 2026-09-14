@@ -171,8 +171,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final cacheMode = isConnected
           ? CacheMode.LOAD_DEFAULT
           : CacheMode.LOAD_CACHE_ELSE_NETWORK;
+      // MUST pass the full settings object: a partial object resets every
+      // omitted setting (scrollbar visibility, mixed content mode, etc.) back
+      // to the platform default. See _buildWebViewSettings().
       await _webViewController!.setSettings(
-        settings: InAppWebViewSettings(cacheMode: cacheMode),
+        settings: _buildWebViewSettings(cacheMode),
       );
     }
   }
@@ -181,6 +184,55 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     return _isOnline
         ? CacheMode.LOAD_DEFAULT
         : CacheMode.LOAD_CACHE_ELSE_NETWORK;
+  }
+
+  /// Builds the complete WebView settings used for both initial creation and
+  /// runtime updates.
+  ///
+  /// IMPORTANT: [InAppWebViewController.setSettings] on Android applies every
+  /// field of the given object (omitted fields fall back to platform
+  /// defaults), so any runtime settings update MUST pass the full settings
+  /// object. Passing a partial object (e.g. only `cacheMode`) silently resets
+  /// all other options — including the scrollbar suppression settings — which
+  /// caused the native scrollbar to reappear while scrolling.
+  InAppWebViewSettings _buildWebViewSettings(CacheMode cacheMode) {
+    return InAppWebViewSettings(
+      useShouldOverrideUrlLoading: true,
+      mediaPlaybackRequiresUserGesture: false,
+      javaScriptEnabled: true,
+      domStorageEnabled: true,
+      databaseEnabled: true,
+      cacheEnabled: true,
+      useOnDownloadStart: true,
+      allowsLinkPreview: false,
+      safeBrowsingEnabled: true,
+      disableDefaultErrorPage: true,
+      saveFormData: false,
+      disableContextMenu: true,
+      // Enforce HTTPS-only content security and disallow mixed HTTP content
+      mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+      // Hide the native scrollbars: the web app renders its own scrolling UX
+      verticalScrollBarEnabled: false,
+      horizontalScrollBarEnabled: false,
+      // Fade the scroll thumb out instead of keeping it drawn while scrolling
+      scrollbarFadingEnabled: true,
+      scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
+      // Robust 100% offline support cache configuration
+      cacheMode: cacheMode,
+      // Remove all window/viewport margins, backgrounds, and styling issues
+      transparentBackground: true,
+      // Enable high fidelity viewport dynamic scaling for smaller devices
+      useWideViewPort: true,
+      loadWithOverviewMode: true,
+      supportZoom: false,
+      // Restrict third-party cookies by default to protect cross-site user sessions
+      thirdPartyCookiesEnabled: false,
+      sharedCookiesEnabled: true,
+      // Disallow local file system access from web context
+      allowFileAccess: false,
+      allowFileAccessFromFileURLs: false,
+      allowUniversalAccessFromFileURLs: false,
+    );
   }
 
   void _showRuntimePermissionDeniedDialog(Permission permission) {
@@ -835,41 +887,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
                     ),
                   ]),
-                  initialSettings: InAppWebViewSettings(
-                    useShouldOverrideUrlLoading: true,
-                    mediaPlaybackRequiresUserGesture: false,
-                    javaScriptEnabled: true,
-                    domStorageEnabled: true,
-                    databaseEnabled: true,
-                    cacheEnabled: true,
-                    useOnDownloadStart: true,
-                    allowsLinkPreview: false,
-                    safeBrowsingEnabled: true,
-                    disableDefaultErrorPage: true,
-                    saveFormData: false,
-                    disableContextMenu: true,
-                    // Enforce HTTPS-only content security and disallow mixed HTTP content
-                    mixedContentMode:
-                        MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
-                    verticalScrollBarEnabled: false,
-                    horizontalScrollBarEnabled: false,
-                    scrollbarFadingEnabled: false,
-                    scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
-                    // Robust 100% offline support cache configuration
-                    cacheMode: _getCurrentCacheMode(),
-                    // Remove all window/viewport margins, backgrounds, and styling issues
-                    transparentBackground: true,
-                    // Enable high fidelity viewport dynamic scaling for smaller devices
-                    useWideViewPort: true,
-                    loadWithOverviewMode: true,
-                    supportZoom: false,
-                    // Restrict third-party cookies by default to protect cross-site user sessions
-                    thirdPartyCookiesEnabled: false,
-                    sharedCookiesEnabled: true,
-                    // Disallow local file system access from web context
-                    allowFileAccess: false,
-                    allowFileAccessFromFileURLs: false,
-                    allowUniversalAccessFromFileURLs: false,
+                  initialSettings: _buildWebViewSettings(
+                    _getCurrentCacheMode(),
                   ),
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
                     final uri = navigationAction.request.url;
