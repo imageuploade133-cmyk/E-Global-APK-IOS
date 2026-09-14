@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "YOUR_PROJECT_NUMBER",
-    "project_id": "your-project-id",
-    "storage_bucket": "your-project-id.appspot.com"
+    "project_number": "228699271017",
+    "project_id": "e-tech-global-hub",
+    "storage_bucket": "e-tech-global-hub.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "YOUR_APP_ID",
+        "mobilesdk_app_id": "1:228699271017:android:65d6944dd745f11e9917f8",
         "android_client_info": {
           "package_name": "com.eglobal.wallet"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "YOUR_API_KEY"
+          "current_key": "AIzaSyBDFysddxQN4s-dXdSQLTslokmm9Q5Oka8"
         }
       ],
       "services": {

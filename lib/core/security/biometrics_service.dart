@@ -9,13 +9,15 @@ abstract class BiometricsService {
 class BiometricsServiceImpl implements BiometricsService {
   final LocalAuthentication _auth;
 
-  BiometricsServiceImpl({LocalAuthentication? auth}) : _auth = auth ?? LocalAuthentication();
+  BiometricsServiceImpl({LocalAuthentication? auth})
+    : _auth = auth ?? LocalAuthentication();
 
   @override
   Future<bool> isBiometricsAvailable() async {
     try {
       final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
-      final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
+      final bool canAuthenticate =
+          canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
       return canAuthenticate;
     } on PlatformException {
       return false;

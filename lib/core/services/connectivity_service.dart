@@ -9,7 +9,8 @@ abstract class ConnectivityService {
 class ConnectivityServiceImpl implements ConnectivityService {
   final Connectivity _connectivity;
 
-  ConnectivityServiceImpl({Connectivity? connectivity}) : _connectivity = connectivity ?? Connectivity();
+  ConnectivityServiceImpl({Connectivity? connectivity})
+    : _connectivity = connectivity ?? Connectivity();
 
   @override
   Stream<bool> get onConnectivityChanged {
