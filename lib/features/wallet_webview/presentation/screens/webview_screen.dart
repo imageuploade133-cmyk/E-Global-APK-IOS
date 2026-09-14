@@ -426,7 +426,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String _extractFileName(Uri uri, String? contentDisposition) {
     // Try to extract filename from Content-Disposition header first
     if (contentDisposition != null && contentDisposition.isNotEmpty) {
-      final fileNameRegex = RegExp(r"filename[^;=\n]*=[\"']?([^\"';\n]*)[\"']?");
+      final fileNameRegex = RegExp(r'''filename[^;=\n]*=["']?([^"';\n]*)["']?''');
       final matches = fileNameRegex.allMatches(contentDisposition);
       if (matches.isNotEmpty) {
         final match = matches.first.group(1);

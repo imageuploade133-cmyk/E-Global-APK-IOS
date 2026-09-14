@@ -20,4 +20,13 @@ class AppLogger {
   static void i(String message) {
     developer.log('[INFO] $message', name: 'E-Global Pay');
   }
+
+  static void w(String message, [Object? error, StackTrace? stackTrace]) {
+    developer.log(
+      '[WARN] $message',
+      name: 'E-Global Pay',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
 }
