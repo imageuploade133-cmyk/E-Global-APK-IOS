@@ -33,15 +33,42 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
           Permission.notification,
         ];
 
+  @override
+  void initState() {
+    super.initState();
+    // Check permissions on screen load without blocking
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndProceedIfAlreadyGranted();
+    });
+  }
+
+  Future<void> _checkAndProceedIfAlreadyGranted() async {
+    bool allGranted = true;
+    for (final perm in _permissions) {
+      final status = await perm.status;
+      final isGranted = status.isGranted || status.isLimited || status.isRestricted;
+      if (!isGranted) {
+        allGranted = false;
+        break;
+      }
+    }
+
+    if (allGranted && mounted) {
+      _proceedToApp();
+    }
+  }
+
   Future<void> _requestAllPermissions() async {
     if (_isRequesting) return;
     setState(() {
       _isRequesting = true;
     });
 
-    // Request permissions sequentially/on-screen
+    // Request permissions sequentially/on-screen with minimal delay between requests
     for (final perm in _permissions) {
       await perm.request();
+      // Small delay to prevent UI blocking and allow system dialog animation
+      await Future.delayed(const Duration(milliseconds: 100));
     }
 
     // Check final status
@@ -67,18 +94,22 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
   }
 
   Future<void> _proceedToApp() async {
+    // Use optimistic approach - assume connected and navigate immediately
+    // Connectivity check happens in background, offline state handled by web app
     final connectivity = ref.read(connectivityServiceProvider);
+    
+    // Start connectivity check but don't wait for it - fire and forget
+    connectivity.isConnected.then((isConnected) {
+      if (!isConnected && mounted) {
+        Navigator.of(context).pushReplacementNamed('/offline');
+      }
+    });
+
+    // Immediately proceed to check biometric status
     final secureStorage = ref.read(secureStorageProvider);
     final biometrics = ref.read(biometricServiceProvider);
 
-    final isConnected = await connectivity.isConnected;
-    if (!isConnected) {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/offline');
-      }
-      return;
-    }
-
+    // Read biometric setting without blocking UI
     final biometricEnabledStr = await secureStorage.read(AppStrings.biometricKey);
     final biometricEnabled = biometricEnabledStr == 'true';
     final hasBiometrics = await biometrics.isBiometricsAvailable();
@@ -110,7 +141,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
           ],
         ),
         content: const Text(
-          'E-Global Wallet requires all permissions to ensure safe, secure, and compliant financial operations. The app will now close.',
+          'E-Global Pay requires all permissions to ensure safe, secure, and compliant financial operations. The app will now close.',
           style: TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
         ),
         actions: [
@@ -167,7 +198,7 @@ class _PermissionsOnboardingScreenState extends ConsumerState<PermissionsOnboard
                         ),
                         const SizedBox(height: 12),
                         const Text(
-                          'To enable a highly secure and functional banking experience, E-Global Wallet requires the following device permissions:',
+                          'To enable a highly secure and functional banking experience, E-Global Pay requires the following device permissions:',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 15,
