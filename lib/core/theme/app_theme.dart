@@ -83,7 +83,7 @@ class AppTheme {
         ),
         behavior: SnackBarBehavior.floating,
       ),
-      dialogTheme: const DialogThemeData(
+      dialogTheme: DialogTheme(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),

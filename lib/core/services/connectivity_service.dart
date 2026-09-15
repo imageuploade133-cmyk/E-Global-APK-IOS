@@ -41,7 +41,7 @@ class ConnectivityService {
   static Future<void> requireConnection() async {
     final connected = await hasConnection();
     if (!connected) {
-      throw constNetworkFailure();
+      throw const NetworkFailure();
     }
   }
 }

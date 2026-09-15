@@ -27,7 +27,7 @@ class WebviewScreen extends ConsumerStatefulWidget {
 }
 
 class _WebviewScreenState extends ConsumerState<WebviewScreen> {
-  InAppWebView? _webView;
+  InAppWebViewController? _controller;
   bool _isWebViewReady = false;
   bool _hasLoadError = false;
   bool _isCrashing = false;
@@ -40,68 +40,87 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   @override
-  void dispose() {
-    _webView?.dispose();
-    super.dispose();
-  }
+  Widget build(BuildContext context) {
+    // If we have a load/crash error, hide the WebView and show error overlay
+    if (_hasLoadError || _isCrashing) {
+      return WebviewErrorOverlay(
+        title: _isCrashing
+            ? AppStrings.webViewCrashTitle
+            : AppStrings.webViewLoadErrorTitle,
+        subtitle: _isCrashing
+            ? AppStrings.webViewCrashSubtitle
+            : AppStrings.webViewLoadErrorSubtitle,
+        onRetry: _checkConnectionAndReload,
+      );
+    }
 
-  // ------------------------------------------------------------------
-  // WebView creation
-  // ------------------------------------------------------------------
-  void _createWebView() {
-    if (_webView != null) return;
+    // If the WebView isn't created yet or isn't ready, show loader
+    if (!_isWebViewReady) {
+      return const WebviewLoader();
+    }
 
-    const settings = InAppWebViewSettings(
-      useShouldOverrideUrlLoading: true,
-      useOnLoadResource: true,
-      mixedContentAllowed: false,
-      javaScriptEnabled: true,
-      domStorageEnabled: true,
-      databaseEnabled: true,
-      allowFileAccess: true,
-      allowContentAccess: true,
-      cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
-      cacheEnabled: true,
-      thirdPartyCookiesEnabled: true,
-      userAgent:
-          'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      inspectionEnabled: false,
-      allowBlindAuthRequests: false,
-      allowUniversalAccessFromFileURLs: false,
-      allowFileAccessFromFileURLs: false,
-    );
-
-    _webView = InAppWebView(
-      key: const ValueKey('main_webview'),
-      initialSettings: settings,
-      initialUrlRequest: URLRequest(
-        url: WebUri(widget.initialUrl),
-        headers: const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'},
+    // Normal state: show the WebView, full-screen, immersive
+    return Scaffold(
+      body: InAppWebView(
+        key: const ValueKey('main_webview'),
+        initialSettings: const InAppWebViewSettings(
+          useShouldOverrideUrlLoading: true,
+          useOnLoadResource: true,
+          mixedContentMode: MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+          javaScriptEnabled: true,
+          domStorageEnabled: true,
+          databaseEnabled: true,
+          allowFileAccess: true,
+          allowContentAccess: true,
+          cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+          cacheEnabled: true,
+          thirdPartyCookiesEnabled: true,
+          userAgent:
+              'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          inspectionEnabled: false,
+          allowUniversalAccessFromFileURLs: false,
+          allowFileAccessFromFileURLs: false,
+          saveFormData: false,
+        ),
+        initialUrlRequest: URLRequest(
+          url: WebUri(widget.initialUrl),
+          headers: const {
+            'User-Agent':
+                'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+          },
+        ),
+        onWebViewCreated: _onWebViewCreated,
+        onLoadStart: _onLoadStart,
+        onLoadStop: _onLoadStop,
+        onLoadError: _onLoadError,
+        onReceivedError: _onReceivedError,
+        onReceivedHttpError: _onReceivedHttpError,
+        onReceivedServerTrustAuthRequest: _onReceivedServerTrustAuthRequest,
+        onConsoleMessage: _onConsoleMessage,
+        onPermissionRequest: _onPermissionRequest,
+        onGeolocationPermissionsShowPrompt: _onGeolocationPermissionsShowPrompt,
+        onSaveFormDataRequest: (controller, url, formData) async {
+          return SaveFormDataRequestAction.IGNORE;
+        },
       ),
-      onWebViewCreated: _onWebViewCreated,
-      onLoadStart: _onLoadStart,
-      onLoadStop: _onLoadStop,
-      onLoadError: _onLoadError,
-      onReceivedError: _onReceivedError,
-      onReceivedHttpError: _onReceivedHttpError,
-      onReceivedServerTrustError: _onReceivedServerTrustError,
-      onConsentPolicyButtonClicked: _onConsentPolicyButtonClicked,
-      onConsoleMessage: _onConsoleMessage,
-      onPermissionRequest: _onPermissionRequest,
-      onGeolocationPermissionsShowPrompt: _onGeolocationPermissionsShowPrompt,
-      onSaveFormDataRequest: (control, url, formData) async {
-        return SaveFormDataRequestAction.IGNORE;
-      },
     );
   }
 
-  void _onWebViewCreated(InAppWebView webView) {
+  // ------------------------------------------------------------------
+  // WebView lifecycle callbacks
+  // ------------------------------------------------------------------
+
+  void _onWebViewCreated(InAppWebViewController controller) {
     AppLogger.info('WebView created successfully', tag: 'Webview');
-    _isWebViewReady = true;
+    _controller = controller;
+    setState(() {
+      _isWebViewReady = true;
+    });
   }
 
-  void _onLoadStart(InAppWebView webView, WebUri? url) {
+  void _onLoadStart(InAppWebViewController controller, WebUri? url) {
     AppLogger.debug('WebView load start: ${url?.toString()}', tag: 'Webview');
     setState(() {
       _hasLoadError = false;
@@ -109,11 +128,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     });
   }
 
-  void _onLoadStop(InAppWebView webView, WebUri? url) async {
+  Future<void> _onLoadStop(InAppWebViewController controller, WebUri? url) async {
     AppLogger.info('WebView load complete: ${url?.toString()}', tag: 'Webview');
 
     // Verify the page actually loaded by checking the title
-    final title = await webView.getTitle();
+    final title = await controller.getTitle();
     final isLoaded = title != null && title.isNotEmpty;
 
     if (!isLoaded && mounted) {
@@ -137,13 +156,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   void _onLoadError(
-    InAppWebView webView,
-    WebUri url,
-    int errorCode,
-    String errorDescription,
+    InAppWebViewController controller,
+    Uri? url,
+    int code,
+    String message,
   ) {
     AppLogger.error(
-      'WebView load error: $errorDescription (code: $errorCode)',
+      'WebView load error: $message (code: $code)',
       tag: 'Webview',
     );
     if (mounted) {
@@ -155,7 +174,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   void _onReceivedError(
-    InAppWebView webView,
+    InAppWebViewController controller,
     WebResourceRequest request,
     WebResourceError error,
   ) {
@@ -164,29 +183,26 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       'for ${request.url?.toString()}',
       tag: 'Webview',
     );
-    // Only treat as critical if it's a connection-level error
-    if (error.errorCode == -1 || error.errorCode == -2) {
-      // -1 = ERR_INTERNET_DISCONNECTED, -2 = ERR_NAME_NOT_RESOLVED, etc.
-      if (mounted) {
-        setState(() {
-          _hasLoadError = true;
-          _isCrashing = false;
-        });
-      }
+    // Treat any resource error as a load failure for the crash guard
+    if (mounted) {
+      setState(() {
+        _hasLoadError = true;
+        _isCrashing = false;
+      });
     }
   }
 
   void _onReceivedHttpError(
-    InAppWebView webView,
+    InAppWebViewController controller,
     WebResourceRequest request,
-    WebResourceResponse response,
+    WebResourceResponse errorResponse,
   ) {
     AppLogger.warning(
-      'HTTP error: ${response.statusCode} for ${request.url?.toString()}',
+      'HTTP error: ${errorResponse.statusCode} for ${request.url?.toString()}',
       tag: 'Webview',
     );
-    final code = response.statusCode;
-    if (code != null && (code >= 400 && code < 600)) {
+    final code = errorResponse.statusCode;
+    if (code != null && code >= 400) {
       if (mounted) {
         setState(() {
           _hasLoadError = true;
@@ -196,74 +212,73 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     }
   }
 
-  void _onReceivedServerTrustError(
-    InAppWebView webView,
-    WebResourceRequest request,
-    ServerTrustError serverTrustError,
-  ) {
+  Future<ServerTrustAuthResponse> _onReceivedServerTrustAuthRequest(
+    InAppWebViewController controller,
+    URLAuthenticationChallenge challenge,
+  ) async {
     AppLogger.error(
-      'SSL/TLS error: ${serverTrustError.error} for ${request.url?.toString()}',
+      'SSL/TLS error: ${challenge.error} for ${challenge.url}',
       tag: 'Webview',
     );
+    // Never proceed with invalid certificates — security requirement
     if (mounted) {
       setState(() {
         _hasLoadError = true;
         _isCrashing = true;
       });
     }
-  }
-
-  void _onConsentPolicyButtonClicked(
-    InAppWebView webView,
-    ConsentPolicyButtonClickedEventArgs args,
-  ) {
-    webView?.acceptConsentPolicy();
+    return ServerTrustAuthResponse.actionCancel();
   }
 
   void _onConsoleMessage(
-    InAppWebView webView,
+    InAppWebViewController controller,
     ConsoleMessage consoleMessage,
   ) {
-    final level = consoleMessage.level.name;
-    if (level == 'error' || level == 'warning') {
+    if (mounted) {
       AppLogger.warning(
-        'WebView console [$level]: ${consoleMessage.message} '
-        'at ${consoleMessage.sourceId}:${consoleMessage.lineNumber}',
+        'WebView console: ${consoleMessage.message}',
         tag: 'Webview.Console',
       );
     }
   }
 
-  void _onPermissionRequest(
-    InAppWebView webView,
-    PermissionRequest request,
+  Future<PermissionResponse> _onPermissionRequest(
+    InAppWebViewController controller,
+    PermissionRequest permissionRequest,
   ) async {
-    final permission = request.permissionIdentifier;
-    if (permission == 'android.webkit.permission.CAMERA' ||
-        permission == 'android.webkit.permission.RECORD_AUDIO' ||
-        permission == 'android.webkit.permission.ACCESS_FINE_LOCATION') {
+    // Auto-grant camera, microphone, location for PWA functionality
+    final resources = permissionRequest.resources;
+    final needsCamera = resources.contains('camera');
+    final needsAudio = resources.contains('microphone');
+    final needsLocation = resources.contains('geolocation');
+
+    if (needsCamera || needsAudio || needsLocation) {
       try {
-        webView.grantPermission(request);
+        return await controller.grantPermission();
       } catch (e) {
-        webView.denyPermission(request);
-        AppLogger.warning('Auto-permission denied: $permission', tag: 'Webview');
+        AppLogger.warning(
+          'Auto-permission denied: ${resources.join(", ")}',
+          tag: 'Webview',
+        );
+        return await controller.denyPermission();
       }
-    } else {
-      webView.denyPermission(request);
     }
+
+    return await controller.denyPermission();
   }
 
-  void _onGeolocationPermissionsShowPrompt(
-    InAppWebView webView,
-    WebUri origin,
-    GeolocationPermissionsShowPromptCallback callback,
-  ) {
-    callback(true, false);
+  Future<GeolocationPermissionShowPromptResponse> _onGeolocationPermissionsShowPrompt(
+    InAppWebViewController controller,
+    String origin,
+  ) async {
+    // Auto-grant geolocation for PWA features
+    return GeolocationPermissionShowPromptResponse.allowed(false);
   }
 
   // ------------------------------------------------------------------
   // Reload helpers
   // ------------------------------------------------------------------
+
   Future<void> _checkConnectionAndReload() async {
     // Close any offline dialog
     if (_isOfflineDialogShowing) {
@@ -282,8 +297,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   Future<void> _reload() async {
-    if (_webView == null) {
-      _createWebView();
+    if (_controller == null) {
       setState(() {});
       return;
     }
@@ -294,7 +308,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     });
 
     try {
-      await _webView!.reload();
+      await _controller!.reload();
     } catch (e) {
       AppLogger.error('Reload failed', tag: 'Webview', error: e);
       setState(() {
@@ -316,30 +330,3 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       );
     }
   }
-
-  @override
-  Widget build(BuildContext context) {
-    // If we have a load/crash error, hide the WebView and show error overlay
-    if (_hasLoadError || _isCrashing) {
-      return WebviewErrorOverlay(
-        title: _isCrashing
-            ? AppStrings.webViewCrashTitle
-            : AppStrings.webViewLoadErrorTitle,
-        subtitle: _isCrashing
-            ? AppStrings.webViewCrashSubtitle
-            : AppStrings.webViewLoadErrorSubtitle,
-        onRetry: _checkConnectionAndReload,
-      );
-    }
-
-    // If the WebView isn't created yet or isn't ready, show loader
-    if (_webView == null || !_isWebViewReady) {
-      return const WebviewLoader();
-    }
-
-    // Normal state: show the WebView, full-screen, immersive
-    return Scaffold(
-      body: _webView,
-    );
-  }
-
