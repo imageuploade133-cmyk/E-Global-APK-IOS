@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/utils/logger.dart';
 
@@ -17,7 +15,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     
     // Validate payload security - never trust incoming data
     final validatedData = _validateNotificationPayload(message.data);
-    if (!validatedData['isValid'] as bool) {
+    if (validatedData['isValid'] != true) {
       AppLogger.w('[Background] Invalid notification payload rejected');
       return;
     }
@@ -36,7 +34,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
-          showBadge: true,
+          channelShowBadge: true,
           enableVibration: true,
           playSound: true,
         ),
@@ -65,7 +63,7 @@ Map<String, dynamic> _validateNotificationPayload(Map<String, dynamic> data) {
         final value = data[key];
         if (value is String) {
           // Sanitize string values
-          sanitized[key] = value.replaceAll(RegExp(r'[<>\"\'&]'), '');
+          sanitized[key] = value.replaceAll(RegExp(r'''[<>"'&]'''), '');
         } else {
           sanitized[key] = value;
         }
@@ -114,7 +112,7 @@ bool _isTrustedRoute(String route) {
 String _sanitizeText(String? text) {
   if (text == null) return '';
   // Remove potentially dangerous characters
-  return text.replaceAll(RegExp(r'[<>\"\'&]'), '').trim();
+  return text.replaceAll(RegExp(r'''[<>"'&]'''), '').trim();
 }
 
 class NotificationService {
@@ -247,7 +245,6 @@ class NotificationService {
       _badgeCount = 0;
       _processedNotificationIds.clear();
       _badgeCountController.add(0);
-      await _messaging.setBadgeCount(0);
       AppLogger.i('User association cleared for logout');
     } catch (e) {
       AppLogger.e('Failed to clear user association', e);
@@ -290,7 +287,6 @@ class NotificationService {
       'E-Global Pay Notifications',
       description: 'Secure notifications from E-Global Pay',
       importance: Importance.high,
-      priority: Priority.high,
       showBadge: true,
       enableVibration: true,
       playSound: true,
@@ -315,7 +311,7 @@ class NotificationService {
     
     // Validate payload security
     final validatedData = _validateNotificationPayload(message.data);
-    if (!validatedData['isValid'] as bool) {
+    if (validatedData['isValid'] != true) {
       AppLogger.w('Invalid notification payload ignored');
       return;
     }
@@ -384,7 +380,7 @@ class NotificationService {
           importance: Importance.high,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
-          showBadge: true,
+          channelShowBadge: true,
           enableVibration: true,
           playSound: true,
         ),
@@ -451,12 +447,7 @@ class NotificationService {
       _badgeCountController.add(safeCount);
     }
     
-    // Set badge on iOS
-    try {
-      await _messaging.setBadgeCount(safeCount);
-    } catch (e) {
-      AppLogger.e('Failed to set iOS badge', e);
-    }
+    // Badge count emitted to controller
     
     // Android badge is handled by notification channel
   }
