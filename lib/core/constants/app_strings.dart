@@ -1,34 +1,35 @@
 class AppStrings {
-  static const String appName = 'E-Global Pay';
-  static const String baseUrl = 'https://e-global-197077.vercel.app/';
-  static const String packageIdentifier = 'com.eglobal.wallet';
-  static const String biometricKey = 'biometric_enabled';
-  static const String credentialsKey = 'secure_wallet_credentials';
-  static const String savedEmailKey = 'remembered_user_email';
+  AppStrings._();
 
-  static const List<String> trustedExternalGateways = [
-    'paystack.com',
-    'flutterwave.com',
-    'interswitchng.com',
-    'monnify.com',
-    'stripe.com',
-    'verify.identitypass.ai',
-    'smileidentity.com',
-  ];
+  static constString appName = 'E-Global Wallet';
 
+  // Secure storage keys
+  static constString savedEmailKey = 'remembered_user_email';
+
+  // Offline screen
+  static constString noInternetTitle = 'No Internet Connection';
+  static constString noInternetSubtitle =
+      'Please check your connection and try again.';
+  static constString retryLabel = 'Retry';
+  static constString cancelLabel = 'Cancel';
+
+  // WebView error
+  static constString webViewLoadErrorTitle = 'Something went wrong';
+  static constString webViewLoadErrorSubtitle =
+      'We couldn\'t load the page. Please check your connection.';
+  static constString webViewCrashTitle = 'App Error';
+  static constString webViewCrashSubtitle =
+      'The page failed to load. Please try again.';
+  static constString tryAgainLabel = 'Try Again';
+
+  // General
+  static constString loading = 'Loading...';
+  static constString error = 'Error';
+  static constString ok = 'OK';
+
+  /// Validates whether a URL origin is a trusted wallet origin.
   static bool isTrustedWalletOrigin(Uri uri) {
-    if (uri.scheme.toLowerCase() != 'https') return false;
-    final expectedUri = Uri.parse(baseUrl);
-    final host = uri.host.toLowerCase();
-    final expectedHost = expectedUri.host.toLowerCase();
-    return host == expectedHost || host.endsWith('.$expectedHost');
-  }
-
-  static bool isTrustedGatewayOrigin(Uri uri) {
-    if (uri.scheme.toLowerCase() != 'https') return false;
-    final host = uri.host.toLowerCase();
-    return trustedExternalGateways.any(
-      (gw) => host == gw || host.endsWith('.$gw'),
-    );
+    return uri.scheme == 'https' &&
+        uri.host == 'e-global-197077.vercel.app';
   }
 }
