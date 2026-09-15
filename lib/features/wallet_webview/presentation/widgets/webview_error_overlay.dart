@@ -9,7 +9,7 @@ class WebviewErrorOverlay extends StatelessWidget {
   final String subtitle;
   final VoidCallback onRetry;
 
-  constWebviewErrorOverlay({
+  const WebviewErrorOverlay({
     super.key,
     required this.title,
     required this.subtitle,
@@ -23,7 +23,7 @@ class WebviewErrorOverlay extends StatelessWidget {
       body: SafeArea(
         child: Center(
           child: Padding(
-            padding: constEdgeInsets.symmetric(horizontal: 28),
+            padding: const EdgeInsets.symmetric(horizontal: 28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -45,7 +45,7 @@ class WebviewErrorOverlay extends StatelessWidget {
                     color: AppColors.error,
                   ),
                 ),
-                constSizedBox(height: 24),
+                const SizedBox(height: 24),
                 Text(
                   title,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -54,7 +54,7 @@ class WebviewErrorOverlay extends StatelessWidget {
                       ),
                   textAlign: TextAlign.center,
                 ),
-                constSizedBox(height: 10),
+                const SizedBox(height: 10),
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -62,17 +62,17 @@ class WebviewErrorOverlay extends StatelessWidget {
                       ),
                   textAlign: TextAlign.center,
                 ),
-                constSizedBox(height: 36),
+                const SizedBox(height: 36),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: onRetry,
-                    icon: constIcon(Icons.refresh_rounded, size: 20),
+                    icon: const Icon(Icons.refresh_rounded, size: 20),
                     label: Text(AppStrings.tryAgainLabel),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: AppColors.onPrimary,
-                      padding: constEdgeInsets.symmetric(vertical: 15),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),

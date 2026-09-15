@@ -8,7 +8,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      colorScheme: constColorScheme.light(
+      colorScheme: const ColorScheme.light(
         primary: AppColors.primary,
         onPrimary: AppColors.onPrimary,
         secondary: AppColors.primaryDark,
@@ -18,12 +18,12 @@ class AppTheme {
         onError: Colors.white,
       ),
       scaffoldBackgroundColor: AppColors.background,
-      appBarTheme: constAppBarTheme(
+      appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.surface,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -34,11 +34,11 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: AppColors.onPrimary,
-          padding: constEdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: constTextStyle(
+          textStyle: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.3,
@@ -71,19 +71,19 @@ class AppTheme {
           color: AppColors.textMuted,
         ),
       ),
-      dividerTheme: constDividerThemeData(
+      dividerTheme: const DividerThemeData(
         color: Color(0xFF333333),
         thickness: 1,
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.surfaceVariant,
-        contentTextStyle: constTextStyle(color: AppColors.onSurface),
+        contentTextStyle: const TextStyle(color: AppColors.onSurface),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
         ),
         behavior: SnackBarBehavior.floating,
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: const DialogThemeData(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
@@ -96,7 +96,7 @@ class AppTheme {
     return lightTheme.copyWith(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.background,
-      colorScheme: constColorScheme.dark(
+      colorScheme: const ColorScheme.dark(
         primary: AppColors.primary,
         onPrimary: AppColors.onPrimary,
         secondary: AppColors.primaryDark,

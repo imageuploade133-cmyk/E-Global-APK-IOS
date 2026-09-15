@@ -1,31 +1,31 @@
 class AppStrings {
   AppStrings._();
 
-  static constString appName = 'E-Global Wallet';
+  static const appName = 'E-Global Wallet';
 
   // Secure storage keys
-  static constString savedEmailKey = 'remembered_user_email';
+  static const savedEmailKey = 'remembered_user_email';
 
   // Offline screen
-  static constString noInternetTitle = 'No Internet Connection';
-  static constString noInternetSubtitle =
+  static const noInternetTitle = 'No Internet Connection';
+  static const noInternetSubtitle =
       'Please check your connection and try again.';
-  static constString retryLabel = 'Retry';
-  static constString cancelLabel = 'Cancel';
+  static const retryLabel = 'Retry';
+  static const cancelLabel = 'Cancel';
 
   // WebView error
-  static constString webViewLoadErrorTitle = 'Something went wrong';
-  static constString webViewLoadErrorSubtitle =
+  static const webViewLoadErrorTitle = 'Something went wrong';
+  static const webViewLoadErrorSubtitle =
       'We couldn\'t load the page. Please check your connection.';
-  static constString webViewCrashTitle = 'App Error';
-  static constString webViewCrashSubtitle =
+  static const webViewCrashTitle = 'App Error';
+  static const webViewCrashSubtitle =
       'The page failed to load. Please try again.';
-  static constString tryAgainLabel = 'Try Again';
+  static const tryAgainLabel = 'Try Again';
 
   // General
-  static constString loading = 'Loading...';
-  static constString error = 'Error';
-  static constString ok = 'OK';
+  static const loading = 'Loading...';
+  static const error = 'Error';
+  static const ok = 'OK';
 
   /// Validates whether a URL origin is a trusted wallet origin.
   static bool isTrustedWalletOrigin(Uri uri) {

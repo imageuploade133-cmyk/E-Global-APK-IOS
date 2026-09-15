@@ -1,24 +1,24 @@
 abstract class Failure {
   final String message;
-  constFailure(this.message);
+  const Failure(this.message);
 
   @override
   String toString() => message;
 }
 
 class NetworkFailure extends Failure {
-  constNetworkFailure([super.message = 'No internet connection']);
+  const NetworkFailure([super.message = 'No internet connection']);
 }
 
 class WebLoadFailure extends Failure {
   final int? statusCode;
-  constWebLoadFailure(super.message, {this.statusCode});
+  const WebLoadFailure(super.message, {this.statusCode});
 }
 
 class WebCrashFailure extends Failure {
-  constWebCrashFailure([super.message = 'The page crashed or failed to load']);
+  const WebCrashFailure([super.message = 'The page crashed or failed to load']);
 }
 
 class UnknownFailure extends Failure {
-  constUnknownFailure([super.message = 'An unexpected error occurred']);
+  const UnknownFailure([super.message = 'An unexpected error occurred']);
 }

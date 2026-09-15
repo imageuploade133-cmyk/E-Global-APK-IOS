@@ -4,7 +4,7 @@ import '../../../core/constants/app_strings.dart';
 
 /// Full-screen loading overlay shown while the WebView is initializing.
 class WebviewLoader extends StatelessWidget {
-  constWebviewLoader({super.key});
+  const WebviewLoader({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -16,7 +16,7 @@ class WebviewLoader extends StatelessWidget {
           children: [
             // Pulsing loader ring
             _PulsingLoader(),
-            constSizedBox(height: 24),
+            const SizedBox(height: 24),
             Text(
               AppStrings.loading,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -45,7 +45,7 @@ class _PulsingLoaderState extends State<_PulsingLoader>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: constDuration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1200),
     )..repeat();
   }
 
@@ -67,7 +67,7 @@ class _PulsingLoaderState extends State<_PulsingLoader>
             value: _controller.value,
             strokeWidth: 3.5,
             backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
           );
         },
       ),

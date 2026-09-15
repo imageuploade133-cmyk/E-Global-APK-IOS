@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/constants/app_colors.dart';
@@ -13,14 +12,8 @@ import 'features/wallet_webview/presentation/screens/webview_screen.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock orientation for wallet UX
-  SystemChannels.views.invokeMethod('setPreferredOrientations', [
-    'portraitUp',
-    'portraitDown',
-  ]);
-
   runApp(
-    constProviderScope(
+    const ProviderScope(
       child: EGlobalWalletApp(),
     ),
   );
@@ -29,7 +22,7 @@ void main() {
 /// Root app widget. Handles startup splash, initial connectivity check,
 /// and switches between the offline screen and the main WebView.
 class EGlobalWalletApp extends ConsumerStatefulWidget {
-  constEGlobalWalletApp({super.key});
+  const EGlobalWalletApp({super.key});
 
   @override
   ConsumerState<EGlobalWalletApp> createState() => _EGlobalWalletAppState();
@@ -67,7 +60,7 @@ class _EGlobalWalletAppState extends ConsumerState<EGlobalWalletApp> {
   Widget build(BuildContext context) {
     // Show splash while the connectivity check is in flight
     if (!_isAppReady) {
-      return constSplashScreen();
+      return const SplashScreen();
     }
 
     // Once ready, choose the home screen based on connectivity
@@ -78,7 +71,7 @@ class _EGlobalWalletAppState extends ConsumerState<EGlobalWalletApp> {
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.dark,
       home: _isOnline
-          ? constWebviewScreen()
+          ? const WebviewScreen()
           : OfflineScreen(onRetry: _retryFromSplash),
     );
   }
@@ -95,7 +88,7 @@ class _EGlobalWalletAppState extends ConsumerState<EGlobalWalletApp> {
 
 /// Minimal splash shown during startup connectivity check.
 class SplashScreen extends StatelessWidget {
-  constSplashScreen({super.key});
+  const SplashScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -115,17 +108,17 @@ class SplashScreen extends StatelessWidget {
                   BoxShadow(
                     color: AppColors.primary.withValues(alpha: 0.4),
                     blurRadius: 20,
-                    offset: constOffset(0, 8),
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
-              child: constIcon(
+              child: const Icon(
                 Icons.account_balance_wallet_rounded,
                 size: 44,
                 color: AppColors.onPrimary,
               ),
             ),
-            constSizedBox(height: 20),
+            const SizedBox(height: 20),
             Text(
               AppStrings.appName,
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
@@ -134,10 +127,10 @@ class SplashScreen extends StatelessWidget {
                     letterSpacing: -0.5,
                   ),
             ),
-            constSizedBox(height: 8),
-            CircularProgressIndicator(
+            const SizedBox(height: 8),
+            const CircularProgressIndicator(
               strokeWidth: 2.5,
-              valueColor: constAlwaysStoppedAnimation<Color>(AppColors.primary),
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
             ),
           ],
         ),

@@ -5,13 +5,13 @@ import '../../core/constants/app_strings.dart';
 class OfflineScreen extends StatelessWidget {
   final VoidCallback onRetry;
 
-  constOfflineScreen({super.key, required this.onRetry});
+  const OfflineScreen({super.key, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: constBoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -30,7 +30,7 @@ class OfflineScreen extends StatelessWidget {
               children: [
                 // Broken WiFi icon
                 _WifiOffIcon(),
-                constSizedBox(height: 24),
+                const SizedBox(height: 24),
                 // Title
                 Text(
                   AppStrings.noInternetTitle,
@@ -40,7 +40,7 @@ class OfflineScreen extends StatelessWidget {
                       ),
                   textAlign: TextAlign.center,
                 ),
-                constSizedBox(height: 12),
+                const SizedBox(height: 12),
                 // Subtitle
                 Text(
                   AppStrings.noInternetSubtitle,
@@ -49,7 +49,7 @@ class OfflineScreen extends StatelessWidget {
                       ),
                   textAlign: TextAlign.center,
                 ),
-                constSizedBox(height: 40),
+                const SizedBox(height: 40),
                 // Retry button with pulse animation
                 _RetryButton(onPressed: onRetry),
               ],
@@ -76,7 +76,7 @@ class _WifiOffIconState extends State<_WifiOffIcon>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: constDuration(seconds: 2),
+      duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
     _pulse = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
@@ -107,7 +107,7 @@ class _WifiOffIconState extends State<_WifiOffIcon>
                 width: 2,
               ),
             ),
-            child: constIcon(
+            child: const Icon(
               Icons.wifi_off_rounded,
               size: 42,
               color: AppColors.primary,
@@ -122,7 +122,7 @@ class _WifiOffIconState extends State<_WifiOffIcon>
 class _RetryButton extends StatefulWidget {
   final VoidCallback onPressed;
 
-  constRetryButton({super.key, required this.onPressed});
+  const _RetryButton({super.key, required this.onPressed});
 
   @override
   State<_RetryButton> createState() => _RetryButtonState();
@@ -141,7 +141,7 @@ class _RetryButtonState extends State<_RetryButton> {
       },
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedContainer(
-        duration: constDuration(milliseconds: 150),
+        duration: const Duration(milliseconds: 150),
         curve: Curves.easeOutCubic,
         transform: Matrix4.translationValues(
           _pressed ? 0 : 0,
@@ -150,9 +150,9 @@ class _RetryButtonState extends State<_RetryButton> {
         ),
         child: Container(
           width: double.infinity,
-          padding: constEdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
-            gradient: constLinearGradient(
+            gradient: const LinearGradient(
               colors: [AppColors.primary, AppColors.primaryDark],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -162,7 +162,7 @@ class _RetryButtonState extends State<_RetryButton> {
               BoxShadow(
                 color: AppColors.primary.withValues(alpha: 0.4),
                 blurRadius: _pressed ? 8 : 16,
-                offset: constOffset(0, 6),
+                offset: const Offset(0, 6),
               ),
             ],
           ),

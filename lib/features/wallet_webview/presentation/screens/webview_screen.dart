@@ -1,7 +1,4 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
@@ -20,7 +17,7 @@ import 'widgets/webview_loader.dart';
 class WebviewScreen extends ConsumerStatefulWidget {
   final String initialUrl;
 
-  constWebviewScreen({
+  const WebviewScreen({
     super.key,
     this.initialUrl = 'https://e-global-197077.vercel.app/',
   });
@@ -34,61 +31,18 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   bool _isWebViewReady = false;
   bool _hasLoadError = false;
   bool _isCrashing = false;
-  String? _lastUrl;
-
-  late final StreamSubscription<bool> _connectivitySub;
+  bool _isOfflineDialogShowing = false;
 
   @override
   void initState() {
     super.initState();
     AppLogger.info('WebviewScreen initializing', tag: 'Webview');
-    _subscribeConnectivity();
   }
 
   @override
   void dispose() {
-    _connectivitySub.cancel();
     _webView?.dispose();
     super.dispose();
-  }
-
-  // ------------------------------------------------------------------
-  // Connectivity monitoring — set up once in initState
-  // ------------------------------------------------------------------
-  void _subscribeConnectivity() {
-    _connectivitySub = ref.listen<AsyncValue<bool>>(connectivityProvider, (previous, next) {
-      next.whenData((connected) {
-        if (!connected) {
-          AppLogger.warning('Internet lost — showing offline screen', tag: 'Webview');
-          _showOffline();
-        } else {
-          AppLogger.info('Internet restored — hiding offline screen', tag: 'Webview');
-          _dismissOfflineAndMaybeReload();
-        }
-      });
-    }).stream.listen((_) {});
-  }
-
-  void _showOffline() {
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => constOfflineScreen(
-          onRetry: _checkConnectionAndReload,
-        ),
-      );
-    }
-  }
-
-  void _dismissOfflineAndMaybeReload() {
-    // Dismiss the offline dialog if it's showing, then reload the WebView
-    try {
-      Navigator.of(context).pop();
-    } catch (_) {
-      // No dialog to pop — fine
-    }
-    _reload();
   }
 
   // ------------------------------------------------------------------
@@ -112,7 +66,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       userAgent:
           'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 '
           '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      // Disable debugging in release for security
       inspectionEnabled: false,
       allowBlindAuthRequests: false,
       allowUniversalAccessFromFileURLs: false,
@@ -120,11 +73,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     );
 
     _webView = InAppWebView(
-      key: constValueKey('main_webview'),
+      key: const ValueKey('main_webview'),
       initialSettings: settings,
       initialUrlRequest: URLRequest(
         url: WebUri(widget.initialUrl),
-        headers: {'User-Agent': settings.userAgent},
+        headers: const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'},
       ),
       onWebViewCreated: _onWebViewCreated,
       onLoadStart: _onLoadStart,
@@ -138,7 +91,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       onPermissionRequest: _onPermissionRequest,
       onGeolocationPermissionsShowPrompt: _onGeolocationPermissionsShowPrompt,
       onSaveFormDataRequest: (control, url, formData) async {
-        // Don't save form data for security
         return SaveFormDataRequestAction.IGNORE;
       },
     );
@@ -150,8 +102,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   }
 
   void _onLoadStart(InAppWebView webView, WebUri? url) {
-    _lastUrl = url?.toString();
-    AppLogger.debug('WebView load start: $_lastUrl', tag: 'Webview');
+    AppLogger.debug('WebView load start: ${url?.toString()}', tag: 'Webview');
     setState(() {
       _hasLoadError = false;
       _isCrashing = false;
@@ -209,7 +160,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     WebResourceError error,
   ) {
     AppLogger.warning(
-      'Web resource error: ${error.description} (code: ${error.errorCode}) '
+      'Web resource error: ${error.description} '
       'for ${request.url?.toString()}',
       tag: 'Webview',
     );
@@ -254,7 +205,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       'SSL/TLS error: ${serverTrustError.error} for ${request.url?.toString()}',
       tag: 'Webview',
     );
-    // Never proceed with invalid certificates — security requirement
     if (mounted) {
       setState(() {
         _hasLoadError = true;
@@ -265,9 +215,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
   void _onConsentPolicyButtonClicked(
     InAppWebView webView,
-    ConsentPolicyButtonClickedCallback args,
+    ConsentPolicyButtonClickedEventArgs args,
   ) {
-    // Auto-accept cookie/consent policies for seamless UX
     webView?.acceptConsentPolicy();
   }
 
@@ -289,14 +238,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     InAppWebView webView,
     PermissionRequest request,
   ) async {
-    // Auto-grant camera, microphone, location for PWA functionality
     final permission = request.permissionIdentifier;
     if (permission == 'android.webkit.permission.CAMERA' ||
         permission == 'android.webkit.permission.RECORD_AUDIO' ||
         permission == 'android.webkit.permission.ACCESS_FINE_LOCATION') {
       try {
-        // Request at OS level via permission_handler if needed
-        // For now, auto-grant to WebView
         webView.grantPermission(request);
       } catch (e) {
         webView.denyPermission(request);
@@ -312,7 +258,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     WebUri origin,
     GeolocationPermissionsShowPromptCallback callback,
   ) {
-    // Auto-grant geolocation for PWA features
     callback(true, false);
   }
 
@@ -321,7 +266,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
   // ------------------------------------------------------------------
   Future<void> _checkConnectionAndReload() async {
     // Close any offline dialog
-    Navigator.of(context).pop();
+    if (_isOfflineDialogShowing) {
+      try {
+        Navigator.of(context).pop();
+      } catch (_) {}
+      _isOfflineDialogShowing = false;
+    }
 
     final connected = await ConnectivityService.hasConnection();
     if (!connected) {
@@ -354,6 +304,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
     }
   }
 
+  void _showOffline() {
+    if (mounted) {
+      _isOfflineDialogShowing = true;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => OfflineScreen(
+          onRetry: _checkConnectionAndReload,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // If we have a load/crash error, hide the WebView and show error overlay
@@ -371,7 +334,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
 
     // If the WebView isn't created yet or isn't ready, show loader
     if (_webView == null || !_isWebViewReady) {
-      return constWebviewLoader();
+      return const WebviewLoader();
     }
 
     // Normal state: show the WebView, full-screen, immersive
@@ -379,5 +342,4 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen> {
       body: _webView,
     );
   }
-
 
