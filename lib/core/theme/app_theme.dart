@@ -1,109 +1,108 @@
 import 'package:flutter/material.dart';
-import 'app_colors.dart';
+import '../constants/app_colors.dart';
 
 class AppTheme {
-  AppTheme._();
-
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.light,
+      fontFamily:
+          '.SF Pro Text', // Native iOS San Francisco system font compatibility
       colorScheme: const ColorScheme.light(
         primary: AppColors.primary,
-        onPrimary: AppColors.onPrimary,
-        secondary: AppColors.primaryDark,
-        surface: AppColors.surface,
-        onSurface: AppColors.onSurface,
-        error: AppColors.error,
-        onError: Colors.white,
+        primaryContainer: AppColors.primaryContainer,
+        secondary: AppColors.secondary,
+        surface: Colors.white,
+        onPrimary: Colors.white,
+        onSecondary: Colors.white,
+        onSurface: AppColors.textLight,
       ),
-      scaffoldBackgroundColor: AppColors.background,
+      scaffoldBackgroundColor: Colors.white, // Bleached background
       appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
-        centerTitle: true,
-      ),
-      cardTheme: CardThemeData(
-        color: AppColors.surface,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+        iconTheme: IconThemeData(color: AppColors.textLight),
+        titleTextStyle: TextStyle(
+          color: AppColors.textLight,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          fontFamily: '.SF Pro Display',
         ),
       ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.onPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.3,
-          ),
-        ),
-      ),
-      textTheme: constTextTheme(
+      textTheme: const TextTheme(
         headlineLarge: TextStyle(
-          fontSize: 28,
+          fontSize: 32,
           fontWeight: FontWeight.bold,
-          color: AppColors.onBackground,
-          letterSpacing: -0.5,
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 22,
-          fontWeight: FontWeight.bold,
-          color: AppColors.onBackground,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
         ),
         titleLarge: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: AppColors.onSurface,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
         ),
         bodyLarge: TextStyle(
           fontSize: 16,
-          color: AppColors.onSurface,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
         ),
         bodyMedium: TextStyle(
           fontSize: 14,
-          color: AppColors.textMuted,
-        ),
-      ),
-      dividerTheme: const DividerThemeData(
-        color: Color(0xFF333333),
-        thickness: 1,
-      ),
-      snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surfaceVariant,
-        contentTextStyle: const TextStyle(color: AppColors.onSurface),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-      dialogTheme: DialogTheme(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
         ),
       ),
     );
   }
 
   static ThemeData get darkTheme {
-    return lightTheme.copyWith(
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: AppColors.background,
+    return ThemeData(
+      useMaterial3: true,
+      fontFamily:
+          '.SF Pro Text', // Native iOS San Francisco system font compatibility
       colorScheme: const ColorScheme.dark(
         primary: AppColors.primary,
-        onPrimary: AppColors.onPrimary,
-        secondary: AppColors.primaryDark,
-        surface: AppColors.surface,
-        onSurface: AppColors.onSurface,
-        error: AppColors.error,
-        onError: Colors.white,
+        secondary: AppColors.secondary,
+        surface: Colors.white, // Keep bright bleached aesthetic
+        onPrimary: Colors.white,
+        onSecondary: Colors.white,
+        onSurface: AppColors.textLight,
+      ),
+      scaffoldBackgroundColor: Colors.white, // Keep bright bleached aesthetic
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: IconThemeData(color: AppColors.textLight),
+        titleTextStyle: TextStyle(
+          color: AppColors.textLight,
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          fontFamily: '.SF Pro Display',
+        ),
+      ),
+      textTheme: const TextTheme(
+        headlineLarge: TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
+        ),
+        titleLarge: TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Display',
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: AppColors.textLight,
+          fontFamily: '.SF Pro Text',
+        ),
       ),
     );
   }

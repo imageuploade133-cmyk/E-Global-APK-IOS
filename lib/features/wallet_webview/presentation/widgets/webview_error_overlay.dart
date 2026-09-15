@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_colors.dart';
-import '../../../core/constants/app_strings.dart';
+import 'package:wallet/core/constants/app_colors.dart';
+import 'package:wallet/core/constants/app_strings.dart';
 
 /// Displays when the WebView fails to load or crashes.
 /// Hides the WebView entirely and shows a clean error state.
@@ -39,7 +39,7 @@ class WebviewErrorOverlay extends StatelessWidget {
                       width: 2,
                     ),
                   ),
-                  child: constIcon(
+                  child: const Icon(
                     Icons.error_outline_rounded,
                     size: 36,
                     color: AppColors.error,
