@@ -350,6 +350,14 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       String redirectPath = '';
 
+      if (type == 'session_revoked') {
+        AppLogger.w('Received session_revoked push notification. Clearing local token state.');
+        _secureStorage.delete('fcm_token');
+        _lastToken = null;
+        _redirectController.add('notifications');
+        return;
+      }
+
       // Check transaction reference first for direct receipt opening
       final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
       if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
