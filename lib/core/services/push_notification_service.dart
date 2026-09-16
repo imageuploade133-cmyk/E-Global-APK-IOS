@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+import '../constants/app_strings.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -144,10 +146,30 @@ class PushNotificationServiceImpl implements PushNotificationService {
   Future<void> sendTokenToBackend(String token) async {
     try {
       _lastToken = token;
+
+      // 1. Direct native HTTP registration to backend /api/fcm/register
+      try {
+        final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
+        final response = await http.post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'token': token, 'platform': Platform.isAndroid ? 'android' : 'ios'}),
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          AppLogger.i('Native FCM token successfully registered directly with backend /api/fcm/register');
+        } else {
+          AppLogger.w('Backend /api/fcm/register returned status code: ${response.statusCode}');
+        }
+      } catch (netErr) {
+        AppLogger.w('Direct native FCM token registration network exception: $netErr');
+      }
+
+      // 2. Synchronize token with WebView JS Bridge if WebView is active
       await _syncTokenWithWebView(token);
       AppLogger.i('FCM token cached and synchronized');
     } catch (e) {
-      AppLogger.e('Error syncing FCM token to WebView', e);
+      AppLogger.e('Error syncing FCM token', e);
     }
   }
 
@@ -302,7 +324,16 @@ class PushNotificationServiceImpl implements PushNotificationService {
           redirectPath = 'security';
           break;
         default:
-          final rawPath = (data['path'] ?? '').toString().trim();
+          final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
+          if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
+            redirectPath = '?txRef=$txRef';
+          } else {
+            final rawPath = (data['path'] ?? '').toString().trim();
+            final cleanPath = rawPath.startsWith('/')
+                ? rawPath.substring(1)
+                : rawPath;
+            redirectPath = cleanPath;
+          }
           final cleanPath = rawPath.startsWith('/')
               ? rawPath.substring(1)
               : rawPath;
@@ -311,7 +342,8 @@ class PushNotificationServiceImpl implements PushNotificationService {
       }
 
       // Enforce route allow-list validation to prevent arbitrary open redirects
-      if (!_allowedRoutes.contains(redirectPath)) {
+      final routeToCheck = redirectPath.startsWith('?') ? redirectPath.split('?').first : redirectPath;
+      if (routeToCheck.isNotEmpty && !_allowedRoutes.contains(routeToCheck)) {
         AppLogger.e(
           'Rejected untrusted notification route path: $redirectPath',
         );
