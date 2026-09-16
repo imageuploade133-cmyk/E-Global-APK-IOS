@@ -8,7 +8,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       const ProviderScope(
-        child: EGlobalWalletApp(initialRoute: '/permissions'),
+        child: EGlobalWalletApp(),
       ),
     );
 
