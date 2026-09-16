@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:wallet/core/constants/app_colors.dart';
-import 'package:wallet/core/constants/app_strings.dart';
+import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_strings.dart';
 
 class OfflineScreen extends StatelessWidget {
   final VoidCallback onRetry;
@@ -16,8 +16,8 @@ class OfflineScreen extends StatelessWidget {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              AppColors.backgroundDark,
-              Color(0xFF1E140A),
+              AppColors.offlineGradientStart,
+              AppColors.offlineGradientEnd,
               Color(0xFF0F3460),
             ],
             stops: [0.0, 0.6, 1.0],
@@ -33,9 +33,9 @@ class OfflineScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 // Title
                 Text(
-                  AppStrings.offlineTitle,
+                  AppStrings.noInternetTitle,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: Colors.white,
+                        color: AppColors.onPrimary,
                         fontWeight: FontWeight.bold,
                       ),
                   textAlign: TextAlign.center,
@@ -43,7 +43,7 @@ class OfflineScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 // Subtitle
                 Text(
-                  AppStrings.offlineMessage,
+                  AppStrings.noInternetSubtitle,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: AppColors.textMuted,
                       ),
@@ -144,7 +144,7 @@ class _RetryButtonState extends State<_RetryButton> {
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeOutCubic,
         transform: Matrix4.translationValues(
-          0,
+          _pressed ? 0 : 0,
           _pressed ? 2 : 0,
           0,
         ),
@@ -153,7 +153,7 @@ class _RetryButtonState extends State<_RetryButton> {
           padding: const EdgeInsets.symmetric(vertical: 16),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [AppColors.primary, Color(0xFFFF8F00)],
+              colors: [AppColors.primary, AppColors.primaryDark],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -168,7 +168,7 @@ class _RetryButtonState extends State<_RetryButton> {
           ),
           child: Center(
             child: Text(
-              AppStrings.retry,
+              AppStrings.retryLabel,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: AppColors.onPrimary,
                     fontWeight: FontWeight.bold,

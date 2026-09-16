@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:wallet/core/constants/app_colors.dart';
-import 'package:wallet/core/constants/app_strings.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_strings.dart';
 
 /// Full-screen loading overlay shown while the WebView is initializing.
 class WebviewLoader extends StatelessWidget {
