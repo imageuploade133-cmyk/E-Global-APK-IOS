@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import '../constants/app_strings.dart';
 import 'dart:async';
@@ -147,19 +148,28 @@ class PushNotificationServiceImpl implements PushNotificationService {
     try {
       _lastToken = token;
 
-      // 1. Direct native HTTP registration to backend /api/fcm/register
+      // 1. Direct native HTTP registration to backend /api/fcm/register with Firebase ID token authentication
       try {
-        final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
-        final response = await http.post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'token': token, 'platform': Platform.isAndroid ? 'android' : 'ios'}),
-        ).timeout(const Duration(seconds: 10));
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final idToken = await user.getIdToken();
+          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
+          final response = await http.post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: jsonEncode({'token': token, 'platform': Platform.isAndroid ? 'android' : 'ios'}),
+          ).timeout(const Duration(seconds: 10));
 
-        if (response.statusCode == 200) {
-          AppLogger.i('Native FCM token successfully registered directly with backend /api/fcm/register');
+          if (response.statusCode == 200) {
+            AppLogger.i('Native FCM token successfully registered directly with backend /api/fcm/register');
+          } else {
+            AppLogger.w('Backend /api/fcm/register returned status code: ${response.statusCode}');
+          }
         } else {
-          AppLogger.w('Backend /api/fcm/register returned status code: ${response.statusCode}');
+          AppLogger.i('No authenticated user active yet. FCM token cached until user login.');
         }
       } catch (netErr) {
         AppLogger.w('Direct native FCM token registration network exception: $netErr');
