@@ -56,7 +56,7 @@ flutter_native_splash:
   ios: true
 
 flutter_launcher_icons:
-  android: "ic_launcher"
+  android: true
   ios: true
   macos:
     generate: true
