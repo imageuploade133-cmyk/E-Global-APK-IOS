@@ -90,6 +90,17 @@ class PushNotificationServiceImpl implements PushNotificationService {
         await sendTokenToBackend(newToken);
       });
 
+      // 5. Automatically re-register token whenever user logs in or auth state changes
+      FirebaseAuth.instance.authStateChanges().listen((user) async {
+        if (user != null) {
+          final token = await getFcmToken();
+          if (token != null) {
+            AppLogger.i('Auth state active: re-registering FCM token for logged in user');
+            await sendTokenToBackend(token);
+          }
+        }
+      });
+
       // Fetch current token silently
       final currentToken = await getFcmToken();
       if (currentToken != null) {
@@ -297,58 +308,53 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       String redirectPath = '';
 
-      switch (type) {
-        case 'deposit':
-          redirectPath = 'deposit';
-          break;
-        case 'transfer':
-        case 'incoming transfer':
-        case 'incoming_transfer':
-          redirectPath = 'transfers';
-          break;
-        case 'airtime':
-          redirectPath = 'airtime';
-          break;
-        case 'data':
-          redirectPath = 'data';
-          break;
-        case 'electricity':
-          redirectPath = 'electricity';
-          break;
-        case 'cable tv':
-        case 'cable_tv':
-        case 'cable':
-          redirectPath = 'cable-tv';
-          break;
-        case 'order':
-        case 'order updates':
-        case 'order_updates':
-          redirectPath = 'orders';
-          break;
-        case 'kyc':
-          redirectPath = 'kyc';
-          break;
-        case 'security':
-        case 'security alerts':
-        case 'security_alerts':
-          redirectPath = 'security';
-          break;
-        default:
-          final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
-          if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
-            redirectPath = '?txRef=$txRef';
-          } else {
+      // Check transaction reference first for direct receipt opening
+      final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
+      if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
+        redirectPath = '?txRef=$txRef';
+      } else {
+        switch (type) {
+          case 'deposit':
+            redirectPath = 'deposit';
+            break;
+          case 'transaction':
+          case 'transfer':
+          case 'incoming transfer':
+          case 'incoming_transfer':
+            redirectPath = 'transfers';
+            break;
+          case 'airtime':
+            redirectPath = 'airtime';
+            break;
+          case 'data':
+            redirectPath = 'data';
+            break;
+          case 'electricity':
+            redirectPath = 'electricity';
+            break;
+          case 'cable tv':
+          case 'cable_tv':
+          case 'cable':
+            redirectPath = 'cable-tv';
+            break;
+          case 'order':
+          case 'order updates':
+          case 'order_updates':
+            redirectPath = 'orders';
+            break;
+          case 'kyc':
+            redirectPath = 'kyc';
+            break;
+          case 'security':
+          case 'security alerts':
+          case 'security_alerts':
+            redirectPath = 'security';
+            break;
+          default:
             final rawPath = (data['path'] ?? '').toString().trim();
-            final cleanPath = rawPath.startsWith('/')
-                ? rawPath.substring(1)
-                : rawPath;
-            redirectPath = cleanPath;
-          }
-          final cleanPath = rawPath.startsWith('/')
-              ? rawPath.substring(1)
-              : rawPath;
-          redirectPath = cleanPath;
-          break;
+            redirectPath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
+            break;
+        }
       }
 
       // Enforce route allow-list validation to prevent arbitrary open redirects
