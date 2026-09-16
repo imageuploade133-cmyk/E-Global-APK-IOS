@@ -17,6 +17,7 @@ abstract class PushNotificationService {
   Stream<String> get onTokenRefresh;
   Stream<String> get onNotificationRedirectStream;
   Future<void> sendTokenToBackend(String token);
+  Future<void> unregisterTokenFromBackend();
   void setWebViewController(InAppWebViewController controller);
 }
 
@@ -90,14 +91,18 @@ class PushNotificationServiceImpl implements PushNotificationService {
         await sendTokenToBackend(newToken);
       });
 
-      // 5. Automatically re-register token whenever user logs in or auth state changes
+      // 5. Automatically handle FCM token registration on login and unregistration on logout
       FirebaseAuth.instance.authStateChanges().listen((user) async {
         if (user != null) {
           final token = await getFcmToken();
           if (token != null) {
-            AppLogger.i('Auth state active: re-registering FCM token for logged in user');
+            AppLogger.i('Auth state active: registering FCM token for logged in user ${user.uid}');
             await sendTokenToBackend(token);
           }
+        } else {
+          AppLogger.i('Auth state unauthenticated: user logged out. Clearing local FCM token state.');
+          await _secureStorage.delete('fcm_token');
+          _lastToken = null;
         }
       });
 
@@ -154,6 +159,43 @@ class PushNotificationServiceImpl implements PushNotificationService {
     }
   }
 
+
+  @override
+  Future<void> unregisterTokenFromBackend() async {
+    try {
+      final token = await getFcmToken();
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (token != null && user != null) {
+        try {
+          final idToken = await user.getIdToken();
+          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
+          final response = await http.delete(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: jsonEncode({'token': token}),
+          ).timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister for user ${user.uid}');
+          } else {
+            AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
+          }
+        } catch (netErr) {
+          AppLogger.w('Native FCM token unregister network exception: $netErr');
+        }
+      }
+
+      await _secureStorage.delete('fcm_token');
+      _lastToken = null;
+      AppLogger.i('FCM token association cleared locally');
+    } catch (e) {
+      AppLogger.e('Error during native unregisterTokenFromBackend', e);
+    }
+  }
   @override
   Future<void> sendTokenToBackend(String token) async {
     try {

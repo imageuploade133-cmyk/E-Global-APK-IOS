@@ -1002,6 +1002,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     pushService.setWebViewController(controller);
 
+                    // Expose 'unregisterFcmToken' handler to the web app for secure native FCM unregistration on logout
+                    controller.addJavaScriptHandler(
+                      handlerName: 'unregisterFcmToken',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected unregisterFcmToken from untrusted origin');
+                          return;
+                        }
+                        final pushService = ref.read(pushNotificationServiceProvider);
+                        await pushService.unregisterTokenFromBackend();
+                      },
+                    );
+
                     // Expose 'getFcmToken' handler to the web app with strict origin check
                     controller.addJavaScriptHandler(
                       handlerName: 'getFcmToken',
