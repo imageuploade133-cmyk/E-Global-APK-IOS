@@ -16,7 +16,9 @@ import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
 import 'package:wallet/core/utils/logger.dart';
+import '../../../offline/offline_screen.dart';
 import '../widgets/download_progress_bar.dart';
+import '../widgets/webview_error_overlay.dart';
 import '../controllers/webview_controller.dart';
 
 class WebviewScreen extends ConsumerStatefulWidget {
@@ -38,12 +40,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String _downloadingFileName = '';
   bool _isDownloading = false;
 
+  bool _hasLoadError = false;
+  bool _isCrashing = false;
+  Timer? _loadingTimeoutTimer;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const int _maxFileSizeBytes = 25 * 1024 * 1024; // 25 MB max limit
 
   static const Color bleachWhite = Colors.white;
-
 
   bool _isInBackground = false;
   bool _hasRestoredSystemUi = false;
@@ -82,6 +86,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     WidgetsBinding.instance.removeObserver(this);
     _connectivitySubscription?.cancel();
     _redirectSubscription?.cancel();
+    _loadingTimeoutTimer?.cancel();
     super.dispose();
   }
 
@@ -117,6 +122,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         setState(() {
           _isOnline = isConnected;
+          if (isConnected && _hasLoadError) {
+            _hasLoadError = false;
+            _isCrashing = false;
+          }
         });
         _handleConnectivityChange(isConnected);
       }
@@ -147,9 +156,51 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void _handleNotificationRedirect(String path) {
     if (_webViewController != null && path.isNotEmpty) {
       final fullUrl = _buildRedirectUrl(path);
+      _startLoadingTimer();
       _webViewController!.loadUrl(urlRequest: URLRequest(url: WebUri(fullUrl)));
     } else {
       _pendingRedirectPath = path;
+    }
+  }
+
+  void _startLoadingTimer() {
+    _loadingTimeoutTimer?.cancel();
+    // If page load takes longer than 20 seconds, hide webview and show try again overlay
+    _loadingTimeoutTimer = Timer(const Duration(seconds: 20), () {
+      if (mounted && (_hasLoadError == false)) {
+        AppLogger.e('Page loading timed out (slow connection)');
+        setState(() {
+          _hasLoadError = true;
+          _isCrashing = false;
+        });
+      }
+    });
+  }
+
+  void _stopLoadingTimer() {
+    _loadingTimeoutTimer?.cancel();
+  }
+
+  Future<void> _checkConnectionAndReload() async {
+    final connectivity = ref.read(connectivityServiceProvider);
+    final isConnected = await connectivity.isConnected;
+    setState(() {
+      _isOnline = isConnected;
+    });
+
+    if (!isConnected) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _hasLoadError = false;
+        _isCrashing = false;
+      });
+      _startLoadingTimer();
+      if (_webViewController != null) {
+        await _webViewController!.reload();
+      }
     }
   }
 
@@ -303,19 +354,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         return;
       }
 
-      final permissionService = ref.read(permissionServiceProvider);
-      final hasStoragePermission = await permissionService
-          .requestStoragePermission();
-      if (!hasStoragePermission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Storage permission is required for downloading.'),
-            ),
-          );
-        }
-        return;
-      }
+      // Storage permission check omitted for internal app documents directory on modern SDKs (Android 10+ / iOS)
+      // to avoid unnecessary 'restricted' errors or OS denials.
 
       final rawFileName = uri.pathSegments.isNotEmpty
           ? uri.pathSegments.last
@@ -744,6 +784,26 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
+    // 1. Strictly show full OfflineScreen if network is disconnected
+    if (!_isOnline) {
+      return OfflineScreen(
+        onRetry: _checkConnectionAndReload,
+      );
+    }
+
+    // 2. Hide WebView and show custom Error Overlay on load failure or slow network timeout
+    if (_hasLoadError || _isCrashing) {
+      return WebviewErrorOverlay(
+        title: _isCrashing
+            ? AppStrings.webViewCrashTitle
+            : AppStrings.webViewLoadErrorTitle,
+        subtitle: _isCrashing
+            ? AppStrings.webViewCrashSubtitle
+            : AppStrings.webViewLoadErrorSubtitle,
+        onRetry: _checkConnectionAndReload,
+      );
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -1112,10 +1172,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
+                    _startLoadingTimer();
                     webViewNotifier.setLoading(true);
                     webViewNotifier.setError(false);
                   },
                   onLoadStop: (controller, url) async {
+                    _stopLoadingTimer();
                     webViewNotifier.setLoading(false);
 
                     // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
@@ -1133,15 +1195,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame ?? true) {
-                      if (!_isOnline && mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Internet connection required to load new pages.',
-                            ),
-                            duration: Duration(seconds: 3),
-                          ),
-                        );
+                      _stopLoadingTimer();
+                      if (mounted) {
+                        setState(() {
+                          _hasLoadError = true;
+                          _isCrashing = false;
+                        });
                       }
                     }
                   },
@@ -1149,6 +1208,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     AppLogger.e(
                       'WebView HTTP error handled: ${errorResponse.statusCode}',
                     );
+                    if ((request.isForMainFrame ?? true) &&
+                        (errorResponse.statusCode ?? 200) >= 400) {
+                      _stopLoadingTimer();
+                      if (mounted) {
+                        setState(() {
+                          _hasLoadError = true;
+                          _isCrashing = false;
+                        });
+                      }
+                    }
                   },
                   onReceivedServerTrustAuthRequest: (controller, challenge) async {
                     AppLogger.e(
