@@ -1,3 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import '../constants/app_strings.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -14,6 +17,7 @@ abstract class PushNotificationService {
   Stream<String> get onTokenRefresh;
   Stream<String> get onNotificationRedirectStream;
   Future<void> sendTokenToBackend(String token);
+  Future<void> unregisterTokenFromBackend();
   void setWebViewController(InAppWebViewController controller);
 }
 
@@ -87,6 +91,21 @@ class PushNotificationServiceImpl implements PushNotificationService {
         await sendTokenToBackend(newToken);
       });
 
+      // 5. Automatically handle FCM token registration on login and unregistration on logout
+      FirebaseAuth.instance.authStateChanges().listen((user) async {
+        if (user != null) {
+          final token = await getFcmToken();
+          if (token != null) {
+            AppLogger.i('Auth state active: registering FCM token for logged in user ${user.uid}');
+            await sendTokenToBackend(token);
+          }
+        } else {
+          AppLogger.i('Auth state unauthenticated: user logged out. Clearing local FCM token state.');
+          await _secureStorage.delete('fcm_token');
+          _lastToken = null;
+        }
+      });
+
       // Fetch current token silently
       final currentToken = await getFcmToken();
       if (currentToken != null) {
@@ -140,14 +159,80 @@ class PushNotificationServiceImpl implements PushNotificationService {
     }
   }
 
+
+  @override
+  Future<void> unregisterTokenFromBackend() async {
+    try {
+      final token = await getFcmToken();
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (token != null && user != null) {
+        try {
+          final idToken = await user.getIdToken();
+          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
+          final response = await http.delete(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: jsonEncode({'token': token}),
+          ).timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister for user ${user.uid}');
+          } else {
+            AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
+          }
+        } catch (netErr) {
+          AppLogger.w('Native FCM token unregister network exception: $netErr');
+        }
+      }
+
+      await _secureStorage.delete('fcm_token');
+      _lastToken = null;
+      AppLogger.i('FCM token association cleared locally');
+    } catch (e) {
+      AppLogger.e('Error during native unregisterTokenFromBackend', e);
+    }
+  }
   @override
   Future<void> sendTokenToBackend(String token) async {
     try {
       _lastToken = token;
+
+      // 1. Direct native HTTP registration to backend /api/fcm/register with Firebase ID token authentication
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final idToken = await user.getIdToken();
+          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
+          final response = await http.post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: jsonEncode({'token': token, 'platform': Platform.isAndroid ? 'android' : 'ios'}),
+          ).timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            AppLogger.i('Native FCM token successfully registered directly with backend /api/fcm/register');
+          } else {
+            AppLogger.w('Backend /api/fcm/register returned status code: ${response.statusCode}');
+          }
+        } else {
+          AppLogger.i('No authenticated user active yet. FCM token cached until user login.');
+        }
+      } catch (netErr) {
+        AppLogger.w('Direct native FCM token registration network exception: $netErr');
+      }
+
+      // 2. Synchronize token with WebView JS Bridge if WebView is active
       await _syncTokenWithWebView(token);
       AppLogger.i('FCM token cached and synchronized');
     } catch (e) {
-      AppLogger.e('Error syncing FCM token to WebView', e);
+      AppLogger.e('Error syncing FCM token', e);
     }
   }
 
@@ -265,53 +350,66 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       String redirectPath = '';
 
-      switch (type) {
-        case 'deposit':
-          redirectPath = 'deposit';
-          break;
-        case 'transfer':
-        case 'incoming transfer':
-        case 'incoming_transfer':
-          redirectPath = 'transfers';
-          break;
-        case 'airtime':
-          redirectPath = 'airtime';
-          break;
-        case 'data':
-          redirectPath = 'data';
-          break;
-        case 'electricity':
-          redirectPath = 'electricity';
-          break;
-        case 'cable tv':
-        case 'cable_tv':
-        case 'cable':
-          redirectPath = 'cable-tv';
-          break;
-        case 'order':
-        case 'order updates':
-        case 'order_updates':
-          redirectPath = 'orders';
-          break;
-        case 'kyc':
-          redirectPath = 'kyc';
-          break;
-        case 'security':
-        case 'security alerts':
-        case 'security_alerts':
-          redirectPath = 'security';
-          break;
-        default:
-          final rawPath = (data['path'] ?? '').toString().trim();
-          final cleanPath = rawPath.startsWith('/')
-              ? rawPath.substring(1)
-              : rawPath;
-          redirectPath = cleanPath;
-          break;
+      if (type == 'session_revoked') {
+        AppLogger.w('Received session_revoked push notification. Clearing local token state.');
+        _secureStorage.delete('fcm_token');
+        _lastToken = null;
+        _redirectController.add('notifications');
+        return;
+      }
+
+      // Check transaction reference first for direct receipt opening
+      final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
+      if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
+        redirectPath = '?txRef=$txRef';
+      } else {
+        switch (type) {
+          case 'deposit':
+            redirectPath = 'deposit';
+            break;
+          case 'transaction':
+          case 'transfer':
+          case 'incoming transfer':
+          case 'incoming_transfer':
+            redirectPath = 'transfers';
+            break;
+          case 'airtime':
+            redirectPath = 'airtime';
+            break;
+          case 'data':
+            redirectPath = 'data';
+            break;
+          case 'electricity':
+            redirectPath = 'electricity';
+            break;
+          case 'cable tv':
+          case 'cable_tv':
+          case 'cable':
+            redirectPath = 'cable-tv';
+            break;
+          case 'order':
+          case 'order updates':
+          case 'order_updates':
+            redirectPath = 'orders';
+            break;
+          case 'kyc':
+            redirectPath = 'kyc';
+            break;
+          case 'security':
+          case 'security alerts':
+          case 'security_alerts':
+            redirectPath = 'security';
+            break;
+          default:
+            final rawPath = (data['path'] ?? '').toString().trim();
+            redirectPath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
+            break;
+        }
       }
 
       // Enforce route allow-list validation to prevent arbitrary open redirects
-      if (!_allowedRoutes.contains(redirectPath)) {
+      final routeToCheck = redirectPath.startsWith('?') ? redirectPath.split('?').first : redirectPath;
+      if (routeToCheck.isNotEmpty && !_allowedRoutes.contains(routeToCheck)) {
         AppLogger.e(
           'Rejected untrusted notification route path: $redirectPath',
         );
