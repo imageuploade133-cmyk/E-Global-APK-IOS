@@ -63,7 +63,8 @@ flutter_launcher_icons:
   adaptive_icon_background: "#f67c01"
   adaptive_icon_foreground: "assets/images/icon_foreground.png"
   macos:
-    generate: false
+    generate: true
+    image_path: "assets/images/logo.png"
   remove_alpha_ios: true
 
 flutter:
