@@ -192,24 +192,32 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Future<void> _checkConnectionAndReload() async {
     final connectivity = ref.read(connectivityServiceProvider);
     final isConnected = await connectivity.isConnected;
-    setState(() {
-      _isOnline = isConnected;
-    });
 
     if (!isConnected) {
+      if (mounted) {
+        setState(() {
+          _isOnline = false;
+          _hasLoadError = true;
+        });
+        HapticFeedback.vibrate();
+      }
       return;
     }
 
     if (mounted) {
       setState(() {
-        _hasLoadError = false;
-        _isCrashing = false;
+        _isOnline = true;
       });
       _startLoadingTimer();
       if (_webViewController != null) {
         await _webViewController!.loadUrl(
           urlRequest: URLRequest(url: WebUri(_currentUrl)),
         );
+      }
+      // If after 3 seconds load error is still true, trigger single vibration for failed user retry
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted && _hasLoadError) {
+        HapticFeedback.vibrate();
       }
     }
   }
