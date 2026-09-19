@@ -35,6 +35,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   StreamSubscription<String>? _redirectSubscription;
   bool _isOnline = true;
   String? _pendingRedirectPath;
+  String _currentUrl = AppStrings.baseUrl;
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -199,7 +200,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       });
       _startLoadingTimer();
       if (_webViewController != null) {
-        await _webViewController!.reload();
+        await _webViewController!.loadUrl(
+          urlRequest: URLRequest(url: WebUri(_currentUrl)),
+        );
       }
     }
   }
@@ -1185,6 +1188,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
+                    if (url != null) {
+                      _currentUrl = url.toString();
+                    }
                     _startLoadingTimer();
                     webViewNotifier.setLoading(true);
                     webViewNotifier.setError(false);
