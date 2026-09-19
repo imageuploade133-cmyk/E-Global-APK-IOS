@@ -122,7 +122,7 @@ class _WifiOffIconState extends State<_WifiOffIcon>
 class _RetryButton extends StatefulWidget {
   final VoidCallback onPressed;
 
-  const _RetryButton({super.key, required this.onPressed});
+  const _RetryButton({required this.onPressed});
 
   @override
   State<_RetryButton> createState() => _RetryButtonState();

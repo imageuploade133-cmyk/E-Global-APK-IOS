@@ -35,6 +35,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   StreamSubscription<String>? _redirectSubscription;
   bool _isOnline = true;
   String? _pendingRedirectPath;
+  String _currentUrl = AppStrings.baseUrl;
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -199,7 +200,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       });
       _startLoadingTimer();
       if (_webViewController != null) {
-        await _webViewController!.reload();
+        await _webViewController!.loadUrl(
+          urlRequest: URLRequest(url: WebUri(_currentUrl)),
+        );
       }
     }
   }
@@ -1185,6 +1188,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
+                    if (url != null) {
+                      _currentUrl = url.toString();
+                    }
                     _startLoadingTimer();
                     webViewNotifier.setLoading(true);
                     webViewNotifier.setError(false);
@@ -1203,29 +1209,35 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onProgressChanged: (controller, progress) {
                     webViewNotifier.setProgress(progress / 100);
                   },
-                  onReceivedError: (controller, request, error) {
+                  onReceivedError: (controller, request, error) async {
                     AppLogger.e(
                       'WebView error handled: ${error.description}',
                     );
-                    if (request.isForMainFrame ?? true) {
+                    if (request.isForMainFrame == true) {
                       _stopLoadingTimer();
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnected = await connectivity.isConnected;
                       if (mounted) {
                         setState(() {
+                          _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
                         });
                       }
                     }
                   },
-                  onReceivedHttpError: (controller, request, errorResponse) {
+                  onReceivedHttpError: (controller, request, errorResponse) async {
                     AppLogger.e(
                       'WebView HTTP error handled: ${errorResponse.statusCode}',
                     );
-                    if ((request.isForMainFrame ?? true) &&
+                    if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
                       _stopLoadingTimer();
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnected = await connectivity.isConnected;
                       if (mounted) {
                         setState(() {
+                          _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
                         });
