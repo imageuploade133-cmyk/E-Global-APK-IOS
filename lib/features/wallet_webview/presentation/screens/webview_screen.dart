@@ -43,6 +43,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   bool _hasLoadError = false;
   bool _isCrashing = false;
+  bool _isUserRetrying = false;
   Timer? _loadingTimeoutTimer;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
@@ -207,17 +208,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     if (mounted) {
       setState(() {
         _isOnline = true;
+        _isUserRetrying = true;
       });
       _startLoadingTimer();
       if (_webViewController != null) {
         await _webViewController!.loadUrl(
           urlRequest: URLRequest(url: WebUri(_currentUrl)),
         );
-      }
-      // If after 3 seconds load error is still true, trigger single vibration for failed user retry
-      await Future.delayed(const Duration(seconds: 3));
-      if (mounted && _hasLoadError) {
-        HapticFeedback.vibrate();
       }
     }
   }
@@ -1212,6 +1209,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _stopLoadingTimer();
                     webViewNotifier.setLoading(false);
 
+                    // Successful main-frame load completes
+                    if (mounted) {
+                      setState(() {
+                        _hasLoadError = false;
+                        _isCrashing = false;
+                        _isUserRetrying = false;
+                      });
+                    }
+
                     // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
                     _restoreSystemUi();
 
@@ -1232,11 +1238,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
                       if (mounted) {
+                        final wasUserRetrying = _isUserRetrying;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
+                          _isUserRetrying = false;
                         });
+                        if (wasUserRetrying) {
+                          HapticFeedback.vibrate();
+                        }
                       }
                     }
                   },
@@ -1251,11 +1262,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
                       if (mounted) {
+                        final wasUserRetrying = _isUserRetrying;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
+                          _isUserRetrying = false;
                         });
+                        if (wasUserRetrying) {
+                          HapticFeedback.vibrate();
+                        }
                       }
                     }
                   },
