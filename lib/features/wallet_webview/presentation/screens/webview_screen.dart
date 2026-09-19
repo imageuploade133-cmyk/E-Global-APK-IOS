@@ -191,6 +191,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   Future<void> _checkConnectionAndReload() async {
+    if (mounted) {
+      setState(() {
+        _isUserRetrying = true;
+      });
+    }
+
     final connectivity = ref.read(connectivityServiceProvider);
     final isConnected = await connectivity.isConnected;
 
@@ -199,6 +205,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
+          _isUserRetrying = false;
         });
         HapticFeedback.vibrate();
       }
@@ -803,6 +810,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     if (_hasLoadError || _isCrashing) {
       if (!_isOnline) {
         return OfflineScreen(
+          isRetrying: _isUserRetrying,
           onRetry: _checkConnectionAndReload,
         );
       }
@@ -813,6 +821,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         subtitle: _isCrashing
             ? AppStrings.webViewCrashSubtitle
             : AppStrings.webViewLoadErrorSubtitle,
+        isRetrying: _isUserRetrying,
         onRetry: _checkConnectionAndReload,
       );
     }

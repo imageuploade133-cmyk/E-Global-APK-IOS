@@ -4,41 +4,19 @@ import 'package:wallet/core/constants/app_strings.dart';
 
 /// Displays when the WebView fails to load or crashes.
 /// Uses pure #FFFFFF background, clean typography, and E-Global orange gradient.
-class WebviewErrorOverlay extends StatefulWidget {
+class WebviewErrorOverlay extends StatelessWidget {
   final String title;
   final String subtitle;
-  final Future<void> Function() onRetry;
+  final bool isRetrying;
+  final VoidCallback onRetry;
 
   const WebviewErrorOverlay({
     super.key,
     required this.title,
     required this.subtitle,
+    this.isRetrying = false,
     required this.onRetry,
   });
-
-  @override
-  State<WebviewErrorOverlay> createState() => _WebviewErrorOverlayState();
-}
-
-class _WebviewErrorOverlayState extends State<WebviewErrorOverlay> {
-  bool _isRetrying = false;
-
-  Future<void> _handleRetry() async {
-    if (_isRetrying) return;
-    setState(() {
-      _isRetrying = true;
-    });
-
-    try {
-      await widget.onRetry();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRetrying = false;
-        });
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +45,7 @@ class _WebviewErrorOverlayState extends State<WebviewErrorOverlay> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  widget.title,
+                  title,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         color: AppColors.textLight,
                         fontWeight: FontWeight.bold,
@@ -77,7 +55,7 @@ class _WebviewErrorOverlayState extends State<WebviewErrorOverlay> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  widget.subtitle,
+                  subtitle,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: Colors.grey[600],
                         fontSize: 15,
@@ -91,10 +69,10 @@ class _WebviewErrorOverlayState extends State<WebviewErrorOverlay> {
                   height: 54,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    gradient: LinearGradient(
+                    gradient: const LinearGradient(
                       colors: [
                         AppColors.primary,
-                        const Color(0xFFFF9100),
+                        Color(0xFFFF9100),
                       ],
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
@@ -108,7 +86,7 @@ class _WebviewErrorOverlayState extends State<WebviewErrorOverlay> {
                     ],
                   ),
                   child: ElevatedButton(
-                    onPressed: _isRetrying ? null : _handleRetry,
+                    onPressed: isRetrying ? null : onRetry,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       shadowColor: Colors.transparent,
@@ -120,7 +98,7 @@ class _WebviewErrorOverlayState extends State<WebviewErrorOverlay> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        if (_isRetrying) ...[
+                        if (isRetrying) ...[
                           const SizedBox(
                             width: 20,
                             height: 20,

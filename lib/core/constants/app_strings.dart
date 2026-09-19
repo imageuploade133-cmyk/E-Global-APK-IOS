@@ -40,6 +40,6 @@ class AppStrings {
   static const String webViewCrashSubtitle = 'Please check your internet connection and try again.';
   static const String webViewLoadErrorTitle = 'Unable to connect';
   static const String webViewLoadErrorSubtitle = 'Please check your internet connection and try again.';
-  static const String offlineTitle = 'Unable to connect';
-  static const String offlineMessage = 'Please check your internet connection and try again.';
+  static const String offlineTitle = 'Connection Lost';
+  static const String offlineMessage = 'We couldn\'t connect to the server. Please check your internet connection.';
 }

@@ -2,34 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 
-class OfflineScreen extends StatefulWidget {
-  final Future<void> Function() onRetry;
+class OfflineScreen extends StatelessWidget {
+  final bool isRetrying;
+  final VoidCallback onRetry;
 
-  const OfflineScreen({super.key, required this.onRetry});
-
-  @override
-  State<OfflineScreen> createState() => _OfflineScreenState();
-}
-
-class _OfflineScreenState extends State<OfflineScreen> {
-  bool _isRetrying = false;
-
-  Future<void> _handleRetry() async {
-    if (_isRetrying) return;
-    setState(() {
-      _isRetrying = true;
-    });
-
-    try {
-      await widget.onRetry();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRetrying = false;
-        });
-      }
-    }
-  }
+  const OfflineScreen({
+    super.key,
+    this.isRetrying = false,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +79,7 @@ class _OfflineScreenState extends State<OfflineScreen> {
                     ],
                   ),
                   child: ElevatedButton(
-                    onPressed: _isRetrying ? null : _handleRetry,
+                    onPressed: isRetrying ? null : onRetry,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       shadowColor: Colors.transparent,
@@ -110,7 +91,7 @@ class _OfflineScreenState extends State<OfflineScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        if (_isRetrying) ...[
+                        if (isRetrying) ...[
                           const SizedBox(
                             width: 20,
                             height: 20,
