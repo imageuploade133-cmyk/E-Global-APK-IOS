@@ -170,6 +170,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _loadingTimeoutTimer = Timer(const Duration(seconds: 20), () {
       if (mounted && (_hasLoadError == false)) {
         AppLogger.e('Page loading timed out (slow connection)');
+        _restoreSystemUi();
         setState(() {
           _hasLoadError = true;
           _isCrashing = false;
@@ -1215,6 +1216,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if (request.isForMainFrame == true) {
                       _stopLoadingTimer();
+                      _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
                       if (mounted) {
@@ -1233,6 +1235,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
                       _stopLoadingTimer();
+                      _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
                       if (mounted) {
