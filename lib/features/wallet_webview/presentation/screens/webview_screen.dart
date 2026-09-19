@@ -1203,29 +1203,35 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onProgressChanged: (controller, progress) {
                     webViewNotifier.setProgress(progress / 100);
                   },
-                  onReceivedError: (controller, request, error) {
+                  onReceivedError: (controller, request, error) async {
                     AppLogger.e(
                       'WebView error handled: ${error.description}',
                     );
-                    if (request.isForMainFrame ?? true) {
+                    if (request.isForMainFrame == true) {
                       _stopLoadingTimer();
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnected = await connectivity.isConnected;
                       if (mounted) {
                         setState(() {
+                          _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
                         });
                       }
                     }
                   },
-                  onReceivedHttpError: (controller, request, errorResponse) {
+                  onReceivedHttpError: (controller, request, errorResponse) async {
                     AppLogger.e(
                       'WebView HTTP error handled: ${errorResponse.statusCode}',
                     );
-                    if ((request.isForMainFrame ?? true) &&
+                    if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
                       _stopLoadingTimer();
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnected = await connectivity.isConnected;
                       if (mounted) {
                         setState(() {
+                          _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
                         });
