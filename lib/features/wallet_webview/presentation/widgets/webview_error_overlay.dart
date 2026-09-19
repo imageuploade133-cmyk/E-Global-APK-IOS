@@ -29,19 +29,11 @@ class WebviewErrorOverlay extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Clean error icon
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.wifi_off_rounded,
-                    size: 40,
-                    color: AppColors.primary,
-                  ),
+                // Clean broken Wi-Fi icon
+                const Icon(
+                  Icons.signal_wifi_connected_no_internet_4_rounded,
+                  size: 80,
+                  color: AppColors.primary,
                 ),
                 const SizedBox(height: 24),
                 Text(

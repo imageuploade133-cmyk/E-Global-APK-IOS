@@ -175,13 +175,18 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _loadingTimeoutTimer?.cancel();
     // If page load takes longer than 20 seconds, hide webview and show try again overlay
     _loadingTimeoutTimer = Timer(const Duration(seconds: 20), () {
-      if (mounted && (_hasLoadError == false)) {
+      if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
+        final wasUserRetrying = _isUserRetrying;
         setState(() {
           _hasLoadError = true;
           _isCrashing = false;
+          _isUserRetrying = false;
         });
+        if (wasUserRetrying) {
+          HapticFeedback.vibrate();
+        }
       }
     });
   }
