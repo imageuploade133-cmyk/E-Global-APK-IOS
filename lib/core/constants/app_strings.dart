@@ -36,10 +36,10 @@ class AppStrings {
   static const String loading = 'Loading...';
   static const String tryAgainLabel = 'Try Again';
   static const String retry = 'Retry';
-  static const String webViewCrashTitle = 'Something went wrong';
-  static const String webViewCrashSubtitle = 'The application encountered an issue. Please retry.';
-  static const String webViewLoadErrorTitle = 'Unable to load page';
-  static const String webViewLoadErrorSubtitle = 'Check your connection and try again.';
+  static const String webViewCrashTitle = 'Unable to connect';
+  static const String webViewCrashSubtitle = 'Please check your internet connection and try again.';
+  static const String webViewLoadErrorTitle = 'Unable to connect';
+  static const String webViewLoadErrorSubtitle = 'Please check your internet connection and try again.';
   static const String offlineTitle = 'Connection Lost';
   static const String offlineMessage = 'We couldn\'t connect to the server. Please check your internet connection.';
 }

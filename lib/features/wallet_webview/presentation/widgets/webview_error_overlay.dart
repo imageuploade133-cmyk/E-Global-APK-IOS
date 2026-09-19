@@ -3,23 +3,25 @@ import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 
 /// Displays when the WebView fails to load or crashes.
-/// Hides the WebView entirely and shows a clean error state.
+/// Uses pure #FFFFFF background, clean typography, and E-Global orange gradient.
 class WebviewErrorOverlay extends StatelessWidget {
   final String title;
   final String subtitle;
+  final bool isRetrying;
   final VoidCallback onRetry;
 
   const WebviewErrorOverlay({
     super.key,
     required this.title,
     required this.subtitle,
+    this.isRetrying = false,
     required this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -27,30 +29,19 @@ class WebviewErrorOverlay extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Broken link / exclamation icon
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: AppColors.errorDark.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.error.withValues(alpha: 0.3),
-                      width: 2,
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.error_outline_rounded,
-                    size: 36,
-                    color: AppColors.error,
-                  ),
+                // Clean broken Wi-Fi icon
+                const Icon(
+                  Icons.signal_wifi_connected_no_internet_4_rounded,
+                  size: 80,
+                  color: AppColors.primary,
                 ),
                 const SizedBox(height: 24),
                 Text(
                   title,
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: AppColors.onBackground,
+                        color: AppColors.textLight,
                         fontWeight: FontWeight.bold,
+                        fontSize: 22,
                       ),
                   textAlign: TextAlign.center,
                 ),
@@ -58,24 +49,83 @@ class WebviewErrorOverlay extends StatelessWidget {
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: AppColors.textMuted,
+                        color: Colors.grey[600],
+                        fontSize: 15,
+                        height: 1.4,
                       ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 36),
-                SizedBox(
+                Container(
                   width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh_rounded, size: 20),
-                    label: Text(AppStrings.tryAgainLabel),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: AppColors.onPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  height: 54,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: const LinearGradient(
+                      colors: [
+                        AppColors.primary,
+                        Color(0xFFFF9100),
+                      ],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.25),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
+                    ],
+                  ),
+                  child: ElevatedButton(
+                    onPressed: isRetrying ? null : onRetry,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      shadowColor: Colors.transparent,
+                      disabledBackgroundColor: Colors.transparent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (isRetrying) ...[
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Retrying...',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ] else ...[
+                          const Icon(
+                            Icons.refresh_rounded,
+                            size: 20,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            AppStrings.tryAgainLabel,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),

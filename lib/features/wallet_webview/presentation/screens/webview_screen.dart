@@ -43,6 +43,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   bool _hasLoadError = false;
   bool _isCrashing = false;
+  bool _isUserRetrying = false;
   Timer? _loadingTimeoutTimer;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
@@ -80,6 +81,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     WidgetsBinding.instance.addObserver(this);
     _initConnectivity();
     _initPushNotifications();
+    // Guarantee startup native splash removal regardless of network condition or WebView callback delays
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        _restoreSystemUi();
+      }
+    });
   }
 
   @override
@@ -168,13 +175,18 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _loadingTimeoutTimer?.cancel();
     // If page load takes longer than 20 seconds, hide webview and show try again overlay
     _loadingTimeoutTimer = Timer(const Duration(seconds: 20), () {
-      if (mounted && (_hasLoadError == false)) {
+      if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
+        final wasUserRetrying = _isUserRetrying;
         setState(() {
           _hasLoadError = true;
           _isCrashing = false;
+          _isUserRetrying = false;
         });
+        if (wasUserRetrying) {
+          HapticFeedback.vibrate();
+        }
       }
     });
   }
@@ -184,20 +196,31 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   Future<void> _checkConnectionAndReload() async {
+    if (mounted) {
+      setState(() {
+        _isUserRetrying = true;
+      });
+    }
+
     final connectivity = ref.read(connectivityServiceProvider);
     final isConnected = await connectivity.isConnected;
-    setState(() {
-      _isOnline = isConnected;
-    });
 
     if (!isConnected) {
+      if (mounted) {
+        setState(() {
+          _isOnline = false;
+          _hasLoadError = true;
+          _isUserRetrying = false;
+        });
+        HapticFeedback.vibrate();
+      }
       return;
     }
 
     if (mounted) {
       setState(() {
-        _hasLoadError = false;
-        _isCrashing = false;
+        _isOnline = true;
+        _isUserRetrying = true;
       });
       _startLoadingTimer();
       if (_webViewController != null) {
@@ -788,15 +811,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    // 1. Strictly show full OfflineScreen if network is disconnected
-    if (!_isOnline) {
-      return OfflineScreen(
-        onRetry: _checkConnectionAndReload,
-      );
-    }
-
-    // 2. Hide WebView and show custom Error Overlay on load failure or slow network timeout
+    // Show app error state only if main-frame load failed or crashed
     if (_hasLoadError || _isCrashing) {
+      if (!_isOnline) {
+        return OfflineScreen(
+          isRetrying: _isUserRetrying,
+          onRetry: _checkConnectionAndReload,
+        );
+      }
       return WebviewErrorOverlay(
         title: _isCrashing
             ? AppStrings.webViewCrashTitle
@@ -804,6 +826,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         subtitle: _isCrashing
             ? AppStrings.webViewCrashSubtitle
             : AppStrings.webViewLoadErrorSubtitle,
+        isRetrying: _isUserRetrying,
         onRetry: _checkConnectionAndReload,
       );
     }
@@ -1200,6 +1223,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _stopLoadingTimer();
                     webViewNotifier.setLoading(false);
 
+                    // Successful main-frame load completes
+                    if (mounted) {
+                      setState(() {
+                        _hasLoadError = false;
+                        _isCrashing = false;
+                        _isUserRetrying = false;
+                      });
+                    }
+
                     // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
                     _restoreSystemUi();
 
@@ -1220,11 +1252,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
                       if (mounted) {
+                        final wasUserRetrying = _isUserRetrying;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
+                          _isUserRetrying = false;
                         });
+                        if (wasUserRetrying) {
+                          HapticFeedback.vibrate();
+                        }
                       }
                     }
                   },
@@ -1239,11 +1276,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
                       if (mounted) {
+                        final wasUserRetrying = _isUserRetrying;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
+                          _isUserRetrying = false;
                         });
+                        if (wasUserRetrying) {
+                          HapticFeedback.vibrate();
+                        }
                       }
                     }
                   },
