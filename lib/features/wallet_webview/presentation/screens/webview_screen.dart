@@ -80,6 +80,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     WidgetsBinding.instance.addObserver(this);
     _initConnectivity();
     _initPushNotifications();
+    // Guarantee startup native splash removal regardless of network condition or WebView callback delays
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        _restoreSystemUi();
+      }
+    });
   }
 
   @override
@@ -788,15 +794,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    // 1. Strictly show full OfflineScreen if network is disconnected
-    if (!_isOnline) {
-      return OfflineScreen(
-        onRetry: _checkConnectionAndReload,
-      );
-    }
-
-    // 2. Hide WebView and show custom Error Overlay on load failure or slow network timeout
+    // Show app error state only if main-frame load failed or crashed
     if (_hasLoadError || _isCrashing) {
+      if (!_isOnline) {
+        return OfflineScreen(
+          onRetry: _checkConnectionAndReload,
+        );
+      }
       return WebviewErrorOverlay(
         title: _isCrashing
             ? AppStrings.webViewCrashTitle
