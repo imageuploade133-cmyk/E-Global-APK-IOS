@@ -1454,7 +1454,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onReceivedError: (controller, request, error) async {
                     AppLogger.e(
-                      'WebView error handled: \${error.description}',
+                      'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
                       // Keep the recovery overlay mounted; timeout decides recovery failure.
@@ -1491,7 +1491,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onReceivedHttpError: (controller, request, errorResponse) async {
                     AppLogger.e(
-                      'WebView HTTP error handled: \${errorResponse.statusCode}',
+                      'WebView HTTP error handled: ${errorResponse.statusCode}',
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
