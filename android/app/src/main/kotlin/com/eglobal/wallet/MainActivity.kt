@@ -79,26 +79,10 @@ class MainActivity: FlutterFragmentActivity() {
                 tempFile.delete()
             }
         } else {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val appDir = File(downloadsDir, "E-Global Pay")
-            if (!appDir.exists()) {
-                appDir.mkdirs()
+            if (tempFile.exists()) {
+                tempFile.delete()
             }
-
-            var destFile = File(appDir, fileName)
-            var counter = 1
-            val dotIdx = fileName.lastIndexOf('.')
-            val baseName = if (dotIdx != -1) fileName.substring(0, dotIdx) else fileName
-            val extName = if (dotIdx != -1) fileName.substring(dotIdx) else ""
-
-            while (destFile.exists()) {
-                destFile = File(appDir, "${baseName}_$counter$extName")
-                counter++
-            }
-
-            tempFile.copyTo(destFile, overwrite = true)
-            tempFile.delete()
-            return destFile.absolutePath
+            return null
         }
     }
 }
