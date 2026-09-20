@@ -811,26 +811,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    // Show app error state only if main-frame load failed or crashed
-    if (_hasLoadError || _isCrashing) {
-      if (!_isOnline) {
-        return OfflineScreen(
-          isRetrying: _isUserRetrying,
-          onRetry: _checkConnectionAndReload,
-        );
-      }
-      return WebviewErrorOverlay(
-        title: _isCrashing
-            ? AppStrings.webViewCrashTitle
-            : AppStrings.webViewLoadErrorTitle,
-        subtitle: _isCrashing
-            ? AppStrings.webViewCrashSubtitle
-            : AppStrings.webViewLoadErrorSubtitle,
-        isRetrying: _isUserRetrying,
-        onRetry: _checkConnectionAndReload,
-      );
-    }
-
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -1444,6 +1424,24 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 ),
               ),
               ),
+              if (_hasLoadError || _isCrashing)
+                Positioned.fill(
+                  child: !_isOnline
+                      ? OfflineScreen(
+                          isRetrying: _isUserRetrying,
+                          onRetry: _checkConnectionAndReload,
+                        )
+                      : WebviewErrorOverlay(
+                          title: _isCrashing
+                              ? AppStrings.webViewCrashTitle
+                              : AppStrings.webViewLoadErrorTitle,
+                          subtitle: _isCrashing
+                              ? AppStrings.webViewCrashSubtitle
+                              : AppStrings.webViewLoadErrorSubtitle,
+                          isRetrying: _isUserRetrying,
+                          onRetry: _checkConnectionAndReload,
+                        ),
+                ),
               if (_isDownloading)
                 Align(
                   alignment: Alignment.bottomCenter,
