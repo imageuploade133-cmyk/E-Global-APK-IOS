@@ -50,7 +50,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   int _activeNavigationId = 0;
   int? _recoveryNavigationId;
   final Set<int> _failedNavigationIds = {};
-  bool _isAwaitingRetryLoad = false;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
@@ -201,9 +200,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
-    final navId = ++_activeNavigationId;
-    _recoveryNavigationId = navId;
-    _isAwaitingRetryLoad = true;
+    _recoveryNavigationId = null;
 
     if (mounted) {
       setState(() {
@@ -218,8 +215,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
     if (!isConnected) {
       if (mounted) {
-        _failedNavigationIds.add(navId);
-        _isAwaitingRetryLoad = false;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -1484,10 +1479,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
-                    if (_isAwaitingRetryLoad) {
-                      _isAwaitingRetryLoad = false;
-                    } else {
-                      _activeNavigationId++;
+                    _activeNavigationId++;
+                    if (_isUserRetrying && _recoveryNavigationId == null) {
+                      _recoveryNavigationId = _activeNavigationId;
                     }
 
                     if (url != null) {
@@ -1569,27 +1563,22 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
-                      final errorNavId = _isAwaitingRetryLoad
-                          ? _activeNavigationId - 1
-                          : _activeNavigationId;
-                      _failedNavigationIds.add(errorNavId);
+                      _failedNavigationIds.add(_activeNavigationId);
 
-                      if (errorNavId == _activeNavigationId) {
-                        _stopLoadingTimer();
-                        _restoreSystemUi();
-                        final connectivity = ref.read(connectivityServiceProvider);
-                        final isConnected = await connectivity.isConnected;
-                        if (mounted) {
-                          final wasUserRetrying = _isUserRetrying;
-                          setState(() {
-                            _isOnline = isConnected;
-                            _hasLoadError = true;
-                            _isCrashing = false;
-                            _isUserRetrying = false;
-                          });
-                          if (wasUserRetrying) {
-                            HapticFeedback.vibrate();
-                          }
+                      _stopLoadingTimer();
+                      _restoreSystemUi();
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnected = await connectivity.isConnected;
+                      if (mounted) {
+                        final wasUserRetrying = _isUserRetrying;
+                        setState(() {
+                          _isOnline = isConnected;
+                          _hasLoadError = true;
+                          _isCrashing = false;
+                          _isUserRetrying = false;
+                        });
+                        if (wasUserRetrying) {
+                          HapticFeedback.vibrate();
                         }
                       }
                     }
@@ -1600,27 +1589,22 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
-                      final errorNavId = _isAwaitingRetryLoad
-                          ? _activeNavigationId - 1
-                          : _activeNavigationId;
-                      _failedNavigationIds.add(errorNavId);
+                      _failedNavigationIds.add(_activeNavigationId);
 
-                      if (errorNavId == _activeNavigationId) {
-                        _stopLoadingTimer();
-                        _restoreSystemUi();
-                        final connectivity = ref.read(connectivityServiceProvider);
-                        final isConnected = await connectivity.isConnected;
-                        if (mounted) {
-                          final wasUserRetrying = _isUserRetrying;
-                          setState(() {
-                            _isOnline = isConnected;
-                            _hasLoadError = true;
-                            _isCrashing = false;
-                            _isUserRetrying = false;
-                          });
-                          if (wasUserRetrying) {
-                            HapticFeedback.vibrate();
-                          }
+                      _stopLoadingTimer();
+                      _restoreSystemUi();
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnected = await connectivity.isConnected;
+                      if (mounted) {
+                        final wasUserRetrying = _isUserRetrying;
+                        setState(() {
+                          _isOnline = isConnected;
+                          _hasLoadError = true;
+                          _isCrashing = false;
+                          _isUserRetrying = false;
+                        });
+                        if (wasUserRetrying) {
+                          HapticFeedback.vibrate();
                         }
                       }
                     }
