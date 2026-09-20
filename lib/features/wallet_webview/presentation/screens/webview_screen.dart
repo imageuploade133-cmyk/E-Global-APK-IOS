@@ -192,8 +192,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   Future<void> _checkConnectionAndReload() async {
-    // 1. Immediate haptic feedback on user button press
-    await HapticFeedback.mediumImpact();
+    // Immediate haptic feedback on user button press across iOS & Android system settings
+    HapticFeedback.vibrate();
 
     if (mounted) {
       setState(() {
