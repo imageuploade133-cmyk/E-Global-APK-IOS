@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -47,8 +48,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Timer? _loadingTimeoutTimer;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
-  static const int _maxFileSizeBytes = 25 * 1024 * 1024; // 25 MB max limit
-
   static const Color bleachWhite = Colors.white;
 
   bool _isInBackground = false;
@@ -316,31 +315,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     );
   }
 
-  static const Set<String> _allowedFileExtensions = {
-    '.pdf',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.docx',
-    '.xlsx',
-    '.pptx',
-    '.txt',
-    '.csv',
-    '.zip',
-  };
 
   String _sanitizeFileName(String rawName) {
     var name = rawName.split('?').first.split('#').first;
     name = name.replaceAll(RegExp(r'[\\/:\*\?"<>\|]'), '_');
     name = name.replaceAll(RegExp(r'^\.+'), '');
-    if (name.trim().isEmpty) name = 'downloaded_receipt';
+    if (name.trim().isEmpty) name = 'downloaded_file';
 
-    // Verify file extension safety
-    final lower = name.toLowerCase();
-    final hasAllowedExt = _allowedFileExtensions.any(
-      (ext) => lower.endsWith(ext),
-    );
-    if (!hasAllowedExt) {
+    // If no extension is present in name, keep default safe fallback extension
+    if (!name.contains('.')) {
       name = '$name.pdf';
     }
     return name;
@@ -435,10 +418,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
       await for (final chunk in response) {
         received += chunk.length;
-        if (received > _maxFileSizeBytes) {
-          await sink.close();
-          throw Exception('Download size exceeds maximum 25MB limit.');
-        }
         sink.add(chunk);
         if (total > 0 && mounted) {
           setState(() {
@@ -493,7 +472,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<String> _getDownloadDirectoryPath() async {
-    final directory = await getApplicationDocumentsDirectory();
+    Directory? directory;
+    if (Platform.isAndroid) {
+      directory = await getExternalStorageDirectory();
+    }
+    directory ??= await getApplicationDocumentsDirectory();
     final path = '${directory.path}/eglobal_downloads';
     final dir = Directory(path);
     if (!await dir.exists()) {
@@ -525,12 +508,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final cleanBase64 = base64Data.contains(',')
           ? base64Data.split(',').last
           : base64Data;
-
-      // Validate base64 payload size prior to decoding to prevent OOM
-      if (cleanBase64.length > (_maxFileSizeBytes * 4 / 3)) {
-        AppLogger.e('Base64 share payload exceeds maximum allowed size (25MB)');
-        return;
-      }
 
       final safeName = _sanitizeFileName(fileName);
       final bytes = base64.decode(cleanBase64);
@@ -593,14 +570,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       tempFile = File(tempPath);
 
       final sink = tempFile.openWrite();
-      int received = 0;
 
       await for (final chunk in response) {
-        received += chunk.length;
-        if (received > _maxFileSizeBytes) {
-          await sink.close();
-          throw Exception('Receipt file size exceeds maximum 25MB limit.');
-        }
         sink.add(chunk);
       }
       await sink.flush();
@@ -1120,6 +1091,46 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           return false;
                         }
                         return true;
+                      },
+                    );
+
+                    // Expose 'pickContact' handler for user contact selection
+                    controller.addJavaScriptHandler(
+                      handlerName: 'pickContact',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected pickContact request from untrusted origin');
+                          return null;
+                        }
+                        try {
+                          final status = await Permission.contacts.request();
+                          if (!status.isGranted && !status.isLimited) {
+                            _showRuntimePermissionDeniedDialog(Permission.contacts);
+                            return null;
+                          }
+
+                          final contact = await FlutterContacts.openExternalPick();
+                          if (contact == null) return null;
+
+                          // Retrieve full details for selected contact safely
+                          final fullContact = await FlutterContacts.getContact(contact.id);
+                          final selected = fullContact ?? contact;
+
+                          final name = selected.displayName.trim();
+                          final phones = selected.phones.map((p) => p.number.replaceAll(RegExp(r'\s+'), '')).where((p) => p.isNotEmpty).toList();
+                          final emails = selected.emails.map((e) => e.address.trim()).where((e) => e.isNotEmpty).toList();
+
+                          return {
+                            'displayName': name,
+                            'primaryPhone': phones.isNotEmpty ? phones.first : '',
+                            'phones': phones,
+                            'primaryEmail': emails.isNotEmpty ? emails.first : '',
+                            'emails': emails,
+                          };
+                        } catch (e) {
+                          AppLogger.e('Error picking contact', e);
+                          return null;
+                        }
                       },
                     );
 
