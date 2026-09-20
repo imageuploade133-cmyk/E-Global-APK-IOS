@@ -478,12 +478,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         _downloadProgress = 0.1;
       });
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'HTTP Error ${response.statusCode} while downloading file.',
-        );
-      }
-
       final tempDir = await getTemporaryDirectory();
       final tempPath = '${tempDir.path}/temp_$fileName';
       partialFile = File(tempPath);
@@ -512,22 +506,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       String displaySavedName = fileName;
 
       if (Platform.isAndroid) {
-        try {
-          const channel = MethodChannel('com.eglobal.wallet/mediastore');
-          final String? publicSavedPath = await channel.invokeMethod<String>(
-            'saveToDownloads',
-            {
-              'tempFilePath': tempPath,
-              'fileName': fileName,
-              'mimeType': effectiveMimeType ?? '*/*',
-            },
-          );
-          if (publicSavedPath != null && publicSavedPath.isNotEmpty) {
-            targetOpenPath = publicSavedPath;
-            displaySavedName = fileName;
-          }
-        } catch (e) {
-          AppLogger.e('MediaStore save failed, falling back to local file', e);
+        const channel = MethodChannel('com.eglobal.wallet/mediastore');
+        final String? publicSavedPath = await channel.invokeMethod<String>(
+          'saveToDownloads',
+          {
+            'tempFilePath': tempPath,
+            'fileName': fileName,
+            'mimeType': effectiveMimeType ?? '*/*',
+          },
+        );
+        if (publicSavedPath != null && publicSavedPath.isNotEmpty) {
+          targetOpenPath = publicSavedPath;
+          displaySavedName = fileName;
+        } else {
+          throw Exception('Failed to save file to MediaStore Downloads');
         }
       } else {
         final dirPath = await _getDownloadDirectoryPath();
@@ -595,26 +587,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<String> _getDownloadDirectoryPath() async {
-    if (Platform.isAndroid) {
-      final publicDownloads = Directory('/storage/emulated/0/Download');
-      if (await publicDownloads.exists()) {
-        final path = '${publicDownloads.path}/E-Global Pay';
-        final dir = Directory(path);
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        return path;
-      }
-      final extDir = await getExternalStorageDirectory();
-      if (extDir != null) {
-        final path = '${extDir.path}/E-Global Pay';
-        final dir = Directory(path);
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        return path;
-      }
-    }
     final appDocs = await getApplicationDocumentsDirectory();
     final path = '${appDocs.path}/eglobal_downloads';
     final dir = Directory(path);
@@ -676,7 +648,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       final uri = Uri.parse(url);
       if (uri.scheme.toLowerCase() != 'https') {
-        AppLogger.e('Rejected insecure receipt share URL: $url');
+        AppLogger.e('Rejected insecure receipt share URL (non-HTTPS)');
         return;
       }
 
