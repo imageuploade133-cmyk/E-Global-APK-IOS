@@ -47,8 +47,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _isUserRetrying = false;
   Timer? _loadingTimeoutTimer;
 
-  int _loadAttemptId = 0;
-  int _failedAttemptId = -1;
+  int _activeNavigationId = 0;
+  int? _recoveryNavigationId;
+  bool _activeNavigationHadError = false;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
@@ -176,7 +177,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
-        _failedAttemptId = _loadAttemptId;
+        _activeNavigationHadError = true;
         final wasUserRetrying = _isUserRetrying;
         setState(() {
           _hasLoadError = true;
@@ -199,8 +200,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
-    _loadAttemptId++;
-    _failedAttemptId = -1;
+    final navId = ++_activeNavigationId;
+    _recoveryNavigationId = navId;
+    _activeNavigationHadError = false;
 
     if (mounted) {
       setState(() {
@@ -215,6 +217,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
     if (!isConnected) {
       if (mounted) {
+        _activeNavigationHadError = true;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -1363,6 +1366,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
+                    _activeNavigationId++;
+                    _activeNavigationHadError = false;
+                    if (_hasLoadError) {
+                      _recoveryNavigationId = _activeNavigationId;
+                    }
+
                     if (url != null) {
                       _currentUrl = url.toString();
                     }
@@ -1375,24 +1384,34 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     webViewNotifier.setLoading(false);
 
                     final urlString = url?.toString().toLowerCase() ?? '';
-                    final isErrorUrl = urlString.startsWith('about:') ||
+                    final isErrorUrl = urlString.isEmpty ||
+                        urlString.startsWith('about:') ||
                         urlString.startsWith('chrome-error:') ||
                         urlString.contains('net::err_');
+
+                    final isTrustedUrl = url != null &&
+                        (AppStrings.isTrustedWalletOrigin(url) ||
+                         AppStrings.isTrustedGatewayOrigin(url));
 
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
-                    // Only reveal WebView if current attempt had no errors, internet is online, and URL is valid
                     if (mounted) {
                       if (_hasLoadError) {
-                        if (_failedAttemptId != _loadAttemptId &&
-                            isConnected &&
-                            !isErrorUrl) {
+                        final isCurrentRecovery = _recoveryNavigationId != null &&
+                            _recoveryNavigationId == _activeNavigationId;
+                        final isValidRecovery = isCurrentRecovery &&
+                            !_activeNavigationHadError &&
+                            !isErrorUrl &&
+                            isTrustedUrl;
+
+                        if (isValidRecovery) {
                           setState(() {
                             _isOnline = true;
                             _hasLoadError = false;
                             _isCrashing = false;
                             _isUserRetrying = false;
+                            _recoveryNavigationId = null;
                           });
                         } else {
                           setState(() {
@@ -1402,10 +1421,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           });
                         }
                       } else {
-                        setState(() {
-                          _isOnline = isConnected;
-                          _hasLoadError = isErrorUrl;
-                        });
+                        if (_activeNavigationHadError || isErrorUrl) {
+                          setState(() {
+                            _isOnline = isConnected;
+                            _hasLoadError = true;
+                          });
+                        } else {
+                          setState(() {
+                            _isOnline = isConnected;
+                          });
+                        }
                       }
                     }
 
@@ -1424,7 +1449,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
-                      _failedAttemptId = _loadAttemptId;
+                      _activeNavigationHadError = true;
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
@@ -1449,7 +1474,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
-                      _failedAttemptId = _loadAttemptId;
+                      _activeNavigationHadError = true;
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
