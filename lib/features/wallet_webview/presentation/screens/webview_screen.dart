@@ -287,11 +287,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final List<Permission> permissionsToRequest = [];
 
     for (final resource in permissionRequest.resources) {
-      if (resource.toString().contains('AUDIO_CAPTURE') ||
-          resource.toString().contains('microphone')) {
+      final resourceName = resource.toString().toUpperCase();
+      if (resourceName.contains('AUDIO_CAPTURE') ||
+          resourceName.contains('MICROPHONE')) {
         permissionsToRequest.add(Permission.microphone);
-      } else if (resource.toString().contains('VIDEO_CAPTURE') ||
-          resource.toString().contains('camera')) {
+      }
+      if (resourceName.contains('VIDEO_CAPTURE') ||
+          resourceName.contains('CAMERA')) {
         permissionsToRequest.add(Permission.camera);
       }
     }
@@ -1189,6 +1191,119 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                               await _handleShare(text);
                             }
                           }
+                        }
+                      },
+                    );
+
+                    // Expose native microphone permission bridge for WebView getUserMedia.
+                    controller.addJavaScriptHandler(
+                      handlerName: 'requestMicrophonePermission',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected requestMicrophonePermission from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final status = await Permission.microphone.request();
+                        if (!status.isGranted) {
+                          _showRuntimePermissionDeniedDialog(Permission.microphone);
+                          return false;
+                        }
+                        return true;
+                      },
+                    );
+
+                    // Expose native base64/data download bridge for generated PDFs/images.
+                    controller.addJavaScriptHandler(
+                      handlerName: 'downloadBase64File',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected downloadBase64File from untrusted origin',
+                          );
+                          return false;
+                        }
+                        if (args.isEmpty || args[0] is! Map) return false;
+
+                        try {
+                          final data = Map<String, dynamic>.from(args[0] as Map);
+                          final rawData = data['data'] as String?;
+                          final requestedName = data['fileName'] as String?;
+                          final requestedMime = data['mimeType'] as String?;
+
+                          if (rawData == null || rawData.trim().isEmpty) return false;
+
+                          final commaIndex = rawData.indexOf(',');
+                          final cleanBase64 = commaIndex >= 0
+                              ? rawData.substring(commaIndex + 1)
+                              : rawData;
+                          if (cleanBase64.isEmpty) return false;
+
+                          final bytes = base64.decode(cleanBase64);
+                          final fileName = _sanitizeFileName(
+                            requestedName ?? 'downloaded_file',
+                            requestedMime,
+                          );
+
+                          final tempDir = await getTemporaryDirectory();
+                          final tempPath = '${tempDir.path}/temp_${fileName}';
+                          final tempFile = File(tempPath);
+                          await tempFile.writeAsBytes(bytes, flush: true);
+
+                          String savedPath;
+                          if (Platform.isAndroid) {
+                            const channel = MethodChannel(
+                              'com.eglobal.wallet/mediastore',
+                            );
+                            final publicPath =
+                                await channel.invokeMethod<String>(
+                              'saveToDownloads',
+                              {
+                                'tempFilePath': tempPath,
+                                'fileName': fileName,
+                                'mimeType': requestedMime ?? '*/*',
+                              },
+                            );
+                            if (publicPath == null || publicPath.isEmpty) {
+                              throw Exception(
+                                'Failed to save generated file to Downloads',
+                              );
+                            }
+                            savedPath = publicPath;
+                          } else {
+                            final dirPath = await _getDownloadDirectoryPath();
+                            var filePath = '${dirPath}/${fileName}';
+                            var counter = 1;
+                            final dot = fileName.lastIndexOf('.');
+                            final baseName =
+                                dot > 0 ? fileName.substring(0, dot) : fileName;
+                            final extension =
+                                dot > 0 ? fileName.substring(dot) : '';
+
+                            while (await File(filePath).exists()) {
+                              filePath =
+                                  '${dirPath}/${baseName}_${counter}${extension}';
+                              counter++;
+                            }
+
+                            final target = File(filePath);
+                            await tempFile.copy(target.path);
+                            await tempFile.delete();
+                            savedPath = target.path;
+                          }
+
+                          AppLogger.i(
+                            'Generated file saved successfully: $fileName',
+                          );
+                          return {
+                            'success': true,
+                            'fileName': fileName,
+                            'path': savedPath,
+                          };
+                        } catch (e) {
+                          AppLogger.e('Generated file download failed', e);
+                          return false;
                         }
                       },
                     );
