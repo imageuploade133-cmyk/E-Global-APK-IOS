@@ -49,7 +49,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   int _activeNavigationId = 0;
   int? _recoveryNavigationId;
-  bool _activeNavigationHadError = false;
+  final Set<int> _failedNavigationIds = {};
   bool _isAwaitingRetryLoad = false;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
@@ -178,7 +178,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
-        _activeNavigationHadError = true;
+        _failedNavigationIds.add(_activeNavigationId);
         final wasUserRetrying = _isUserRetrying;
         setState(() {
           _hasLoadError = true;
@@ -204,7 +204,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final navId = ++_activeNavigationId;
     _recoveryNavigationId = navId;
     _isAwaitingRetryLoad = true;
-    _activeNavigationHadError = false;
 
     if (mounted) {
       setState(() {
@@ -219,7 +218,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
     if (!isConnected) {
       if (mounted) {
-        _activeNavigationHadError = true;
+        _failedNavigationIds.add(navId);
         _isAwaitingRetryLoad = false;
         setState(() {
           _isOnline = false;
@@ -1490,7 +1489,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     } else {
                       _activeNavigationId++;
                     }
-                    _activeNavigationHadError = false;
 
                     if (url != null) {
                       _currentUrl = url.toString();
@@ -1516,12 +1514,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
+                    final navHadError = _failedNavigationIds.contains(_activeNavigationId);
+
                     if (mounted) {
                       if (_hasLoadError) {
                         final isCurrentRecovery = _recoveryNavigationId != null &&
                             _recoveryNavigationId == _activeNavigationId;
                         final isValidRecovery = isCurrentRecovery &&
-                            !_activeNavigationHadError &&
+                            !navHadError &&
                             !isErrorUrl &&
                             isTrustedUrl;
 
@@ -1541,7 +1541,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           });
                         }
                       } else {
-                        if (_activeNavigationHadError || isErrorUrl) {
+                        if (navHadError || isErrorUrl) {
                           setState(() {
                             _isOnline = isConnected;
                             _hasLoadError = true;
@@ -1569,21 +1569,27 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
-                      _activeNavigationHadError = true;
-                      _stopLoadingTimer();
-                      _restoreSystemUi();
-                      final connectivity = ref.read(connectivityServiceProvider);
-                      final isConnected = await connectivity.isConnected;
-                      if (mounted) {
-                        final wasUserRetrying = _isUserRetrying;
-                        setState(() {
-                          _isOnline = isConnected;
-                          _hasLoadError = true;
-                          _isCrashing = false;
-                          _isUserRetrying = false;
-                        });
-                        if (wasUserRetrying) {
-                          HapticFeedback.vibrate();
+                      final errorNavId = _isAwaitingRetryLoad
+                          ? _activeNavigationId - 1
+                          : _activeNavigationId;
+                      _failedNavigationIds.add(errorNavId);
+
+                      if (errorNavId == _activeNavigationId) {
+                        _stopLoadingTimer();
+                        _restoreSystemUi();
+                        final connectivity = ref.read(connectivityServiceProvider);
+                        final isConnected = await connectivity.isConnected;
+                        if (mounted) {
+                          final wasUserRetrying = _isUserRetrying;
+                          setState(() {
+                            _isOnline = isConnected;
+                            _hasLoadError = true;
+                            _isCrashing = false;
+                            _isUserRetrying = false;
+                          });
+                          if (wasUserRetrying) {
+                            HapticFeedback.vibrate();
+                          }
                         }
                       }
                     }
@@ -1594,21 +1600,27 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
-                      _activeNavigationHadError = true;
-                      _stopLoadingTimer();
-                      _restoreSystemUi();
-                      final connectivity = ref.read(connectivityServiceProvider);
-                      final isConnected = await connectivity.isConnected;
-                      if (mounted) {
-                        final wasUserRetrying = _isUserRetrying;
-                        setState(() {
-                          _isOnline = isConnected;
-                          _hasLoadError = true;
-                          _isCrashing = false;
-                          _isUserRetrying = false;
-                        });
-                        if (wasUserRetrying) {
-                          HapticFeedback.vibrate();
+                      final errorNavId = _isAwaitingRetryLoad
+                          ? _activeNavigationId - 1
+                          : _activeNavigationId;
+                      _failedNavigationIds.add(errorNavId);
+
+                      if (errorNavId == _activeNavigationId) {
+                        _stopLoadingTimer();
+                        _restoreSystemUi();
+                        final connectivity = ref.read(connectivityServiceProvider);
+                        final isConnected = await connectivity.isConnected;
+                        if (mounted) {
+                          final wasUserRetrying = _isUserRetrying;
+                          setState(() {
+                            _isOnline = isConnected;
+                            _hasLoadError = true;
+                            _isCrashing = false;
+                            _isUserRetrying = false;
+                          });
+                          if (wasUserRetrying) {
+                            HapticFeedback.vibrate();
+                          }
                         }
                       }
                     }
