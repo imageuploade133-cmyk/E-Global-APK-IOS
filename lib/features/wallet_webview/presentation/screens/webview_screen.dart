@@ -195,7 +195,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   Future<void> _checkConnectionAndReload() async {
-    // Immediate haptic feedback on user button press across iOS & Android system settings
+    // Immediate instantaneous haptic feedback on user button tap
+    HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
     _loadAttemptId++;
