@@ -50,6 +50,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   int _activeNavigationId = 0;
   int? _recoveryNavigationId;
   bool _activeNavigationHadError = false;
+  bool _isAwaitingRetryLoad = false;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
@@ -200,6 +201,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
+    final navId = ++_activeNavigationId;
+    _recoveryNavigationId = navId;
+    _isAwaitingRetryLoad = true;
+    _activeNavigationHadError = false;
+
     if (mounted) {
       setState(() {
         _isUserRetrying = true;
@@ -214,6 +220,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     if (!isConnected) {
       if (mounted) {
         _activeNavigationHadError = true;
+        _isAwaitingRetryLoad = false;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -1478,11 +1485,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
-                    _activeNavigationId++;
-                    _activeNavigationHadError = false;
-                    if (_isUserRetrying) {
-                      _recoveryNavigationId = _activeNavigationId;
+                    if (_isAwaitingRetryLoad) {
+                      _isAwaitingRetryLoad = false;
+                    } else {
+                      _activeNavigationId++;
                     }
+                    _activeNavigationHadError = false;
 
                     if (url != null) {
                       _currentUrl = url.toString();
