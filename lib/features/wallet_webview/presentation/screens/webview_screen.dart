@@ -316,17 +316,67 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
 
-  String _sanitizeFileName(String rawName) {
+  String _sanitizeFileName(String rawName, [String? mimeType]) {
     var name = rawName.split('?').first.split('#').first;
     name = name.replaceAll(RegExp(r'[\\/:\*\?"<>\|]'), '_');
     name = name.replaceAll(RegExp(r'^\.+'), '');
     if (name.trim().isEmpty) name = 'downloaded_file';
 
-    // If no extension is present in name, keep default safe fallback extension
     if (!name.contains('.')) {
-      name = '$name.pdf';
+      final ext = _getExtensionFromMimeType(mimeType);
+      name = '$name$ext';
     }
     return name;
+  }
+
+  String _getExtensionFromMimeType(String? mimeType) {
+    if (mimeType == null || mimeType.isEmpty) return '.pdf';
+    final mime = mimeType.toLowerCase().split(';').first.trim();
+    switch (mime) {
+      case 'application/pdf':
+        return '.pdf';
+      case 'image/png':
+        return '.png';
+      case 'image/jpeg':
+      case 'image/jpg':
+        return '.jpg';
+      case 'image/webp':
+        return '.webp';
+      case 'text/csv':
+        return '.csv';
+      case 'text/plain':
+        return '.txt';
+      case 'application/json':
+        return '.json';
+      case 'application/zip':
+        return '.zip';
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        return '.docx';
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        return '.xlsx';
+      case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+        return '.pptx';
+      default:
+        return '.pdf';
+    }
+  }
+
+  String? _parseContentDispositionFileName(String? contentDisposition) {
+    if (contentDisposition == null || contentDisposition.isEmpty) return null;
+    try {
+      final regExp = RegExp(
+        r'''filename\*?=(?:["']?([^"';]+)["']?|UTF-8''(.+))''',
+        caseSensitive: false,
+      );
+      final match = regExp.firstMatch(contentDisposition);
+      if (match != null) {
+        final rawMatch = match.group(2) ?? match.group(1);
+        if (rawMatch != null && rawMatch.isNotEmpty) {
+          return Uri.decodeComponent(rawMatch);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> _handleDownload(
@@ -364,26 +414,54 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         return;
       }
 
-      // Storage permission check omitted for internal app documents directory on modern SDKs (Android 10+ / iOS)
-      // to avoid unnecessary 'restricted' errors or OS denials.
+      final client = HttpClient();
+      final request = await client.getUrl(uri);
+      if (userAgent != null && userAgent.isNotEmpty) {
+        request.headers.set('User-Agent', userAgent);
+      }
 
-      final rawFileName = uri.pathSegments.isNotEmpty
-          ? uri.pathSegments.last
-          : 'receipt.pdf';
-      final fileName = _sanitizeFileName(rawFileName);
+      // Forward WebView session cookies for authenticated downloads
+      if (_webViewController != null) {
+        try {
+          final cookieManager = CookieManager.instance();
+          final cookies = await cookieManager.getCookies(
+            url: WebUri(uri.toString()),
+          );
+          if (cookies.isNotEmpty) {
+            final cookieHeader = cookies
+                .map((c) => '${c.name}=${c.value}')
+                .join('; ');
+            request.headers.set('Cookie', cookieHeader);
+          }
+        } catch (e) {
+          AppLogger.e('Error forwarding cookies for download', e);
+        }
+      }
+
+      final response = await request.close();
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException(
+          'HTTP Error ${response.statusCode} while downloading file.',
+        );
+      }
+
+      final cdFileName = _parseContentDispositionFileName(
+        response.headers.value('content-disposition') ?? contentDisposition,
+      );
+      final rawFileName = cdFileName ??
+          (uri.pathSegments.isNotEmpty
+              ? uri.pathSegments.last
+              : 'downloaded_file');
+      final effectiveMimeType =
+          response.headers.value('content-type') ?? mimeType;
+      final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
 
       setState(() {
         _isDownloading = true;
         _downloadingFileName = fileName;
         _downloadProgress = 0.1;
       });
-
-      final client = HttpClient();
-      final request = await client.getUrl(uri);
-      if (userAgent != null && userAgent.isNotEmpty) {
-        request.headers.set('User-Agent', userAgent);
-      }
-      final response = await request.close();
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException(
@@ -472,12 +550,28 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<String> _getDownloadDirectoryPath() async {
-    Directory? directory;
     if (Platform.isAndroid) {
-      directory = await getExternalStorageDirectory();
+      final publicDownloads = Directory('/storage/emulated/0/Download');
+      if (await publicDownloads.exists()) {
+        final path = '${publicDownloads.path}/E-Global Pay';
+        final dir = Directory(path);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return path;
+      }
+      final extDir = await getExternalStorageDirectory();
+      if (extDir != null) {
+        final path = '${extDir.path}/E-Global Pay';
+        final dir = Directory(path);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return path;
+      }
     }
-    directory ??= await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/eglobal_downloads';
+    final appDocs = await getApplicationDocumentsDirectory();
+    final path = '${appDocs.path}/eglobal_downloads';
     final dir = Directory(path);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
