@@ -130,10 +130,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         setState(() {
           _isOnline = isConnected;
-          if (isConnected && _hasLoadError) {
-            _hasLoadError = false;
-            _isCrashing = false;
-          }
         });
         _handleConnectivityChange(isConnected);
       }
@@ -196,9 +192,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   Future<void> _checkConnectionAndReload() async {
+    // 1. Immediate haptic feedback on user button press
+    await HapticFeedback.mediumImpact();
+
     if (mounted) {
       setState(() {
         _isUserRetrying = true;
+        // Keep _hasLoadError = true so error overlay remains mounted covering WebView completely
       });
     }
 
