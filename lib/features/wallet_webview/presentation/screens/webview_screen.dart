@@ -51,6 +51,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   int? _recoveryAttemptId;
   bool _mainFrameLoading = false;
   bool _recoveryCompleted = false;
+  String? _loadingMainFrameUrl;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
@@ -1372,7 +1373,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
                     _mainFrameLoading = true;
-                    if (_isUserRetrying && _recoveryAttemptId == null) {
+                    _loadingMainFrameUrl = url?.toString();
+                    if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
                       _recoveryCompleted = false;
                     }
@@ -1391,6 +1393,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final completedAttemptId = _loadAttemptId;
                     final completedRecoveryId = _recoveryAttemptId;
                     _mainFrameLoading = false;
+                    _loadingMainFrameUrl = null;
 
                     final urlString = url?.toString().toLowerCase() ?? '';
                     final isErrorUrl = urlString.isEmpty ||
@@ -1454,14 +1457,27 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: \${error.description}',
                     );
                     if (request.isForMainFrame == true) {
+                      // Keep the recovery overlay mounted; timeout decides recovery failure.
+                      if (_isUserRetrying) return;
                       if (!_mainFrameLoading) return;
+
+                      final attemptAtCallback = _loadAttemptId;
+                      final loadingUrlAtCallback = _loadingMainFrameUrl;
+                      final requestUrl = request.url?.toString();
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
-                      if (mounted && _mainFrameLoading) {
-                        final wasUserRetrying = _isUserRetrying;
+
+                      // Never let a callback mutate a newer navigation.
+                      if (mounted &&
+                          _mainFrameLoading &&
+                          _loadAttemptId == attemptAtCallback &&
+                          _loadingMainFrameUrl == loadingUrlAtCallback &&
+                          (loadingUrlAtCallback == null ||
+                              requestUrl == null ||
+                              requestUrl == loadingUrlAtCallback)) {
                         _mainFrameLoading = false;
                         _recoveryAttemptId = null;
                         setState(() {
@@ -1470,9 +1486,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _isCrashing = false;
                           _isUserRetrying = false;
                         });
-                        if (wasUserRetrying) {
-                          HapticFeedback.vibrate();
-                        }
                       }
                     }
                   },
@@ -1482,14 +1495,25 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
+                      if (_isUserRetrying) return;
                       if (!_mainFrameLoading) return;
+
+                      final attemptAtCallback = _loadAttemptId;
+                      final loadingUrlAtCallback = _loadingMainFrameUrl;
+                      final requestUrl = request.url?.toString();
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
-                      if (mounted && _mainFrameLoading) {
-                        final wasUserRetrying = _isUserRetrying;
+
+                      if (mounted &&
+                          _mainFrameLoading &&
+                          _loadAttemptId == attemptAtCallback &&
+                          _loadingMainFrameUrl == loadingUrlAtCallback &&
+                          (loadingUrlAtCallback == null ||
+                              requestUrl == null ||
+                              requestUrl == loadingUrlAtCallback)) {
                         _mainFrameLoading = false;
                         _recoveryAttemptId = null;
                         setState(() {
@@ -1498,9 +1522,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _isCrashing = false;
                           _isUserRetrying = false;
                         });
-                        if (wasUserRetrying) {
-                          HapticFeedback.vibrate();
-                        }
                       }
                     }
                   },
