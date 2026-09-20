@@ -49,7 +49,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   int _activeNavigationId = 0;
   int? _recoveryNavigationId;
-  final Set<int> _failedNavigationIds = {};
+  int? _lastSuccessfulNavId;
+  final Set<int> _failedNavIds = {};
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
@@ -177,7 +178,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
-        _failedNavigationIds.add(_activeNavigationId);
+        _failedNavIds.add(_activeNavigationId);
         final wasUserRetrying = _isUserRetrying;
         setState(() {
           _hasLoadError = true;
@@ -196,7 +197,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   Future<void> _checkConnectionAndReload() async {
-    // Immediate instantaneous haptic feedback on user button tap
+    // Immediate haptic feedback on user button press across iOS & Android system settings
     HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
@@ -297,14 +298,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final List<Permission> permissionsToRequest = [];
 
     for (final resource in permissionRequest.resources) {
-      final resStr = resource.toString().toLowerCase();
-      if (resStr.contains('audio_capture') ||
-          resStr.contains('microphone') ||
-          resStr.contains('audio')) {
+      if (resource.toString().contains('AUDIO_CAPTURE') ||
+          resource.toString().contains('microphone')) {
         permissionsToRequest.add(Permission.microphone);
-      } else if (resStr.contains('video_capture') ||
-          resStr.contains('camera') ||
-          resStr.contains('video')) {
+      } else if (resource.toString().contains('VIDEO_CAPTURE') ||
+          resource.toString().contains('camera')) {
         permissionsToRequest.add(Permission.camera);
       }
     }
@@ -416,163 +414,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   ) async {
     File? partialFile;
     try {
-      List<int>? rawBytes;
-      String? effectiveMimeType = mimeType;
-      String rawFileName = 'downloaded_file';
-
-      var effectiveUrl = url.trim();
-      var uri = Uri.tryParse(effectiveUrl);
-
-      // Upgrade HTTP scheme to HTTPS if host matches trusted wallet or gateway origin
-      if (uri != null && uri.scheme.toLowerCase() == 'http') {
-        final testHttps = uri.replace(scheme: 'https');
-        if (AppStrings.isTrustedWalletOrigin(testHttps) ||
-            AppStrings.isTrustedGatewayOrigin(testHttps)) {
-          uri = testHttps;
-          effectiveUrl = uri.toString();
-        }
-      }
-
-      final scheme = uri?.scheme.toLowerCase() ?? '';
-
-      if (scheme == 'data') {
-        final commaIdx = effectiveUrl.indexOf(',');
-        if (commaIdx != -1) {
-          final header = effectiveUrl.substring(0, commaIdx);
-          final dataStr = effectiveUrl.substring(commaIdx + 1);
-          if (header.contains(';base64')) {
-            rawBytes = base64.decode(dataStr);
-          } else {
-            rawBytes = utf8.encode(Uri.decodeComponent(dataStr));
-          }
-          final mimeMatch = RegExp(r'^data:([^;]+)').firstMatch(header);
-          if (mimeMatch != null) {
-            effectiveMimeType = mimeMatch.group(1);
-          }
-        }
-      } else if (scheme == 'blob') {
-        if (_webViewController != null) {
-          final jsResult = await _webViewController!.evaluateJavascript(
-            source: '''
-              (async function() {
-                try {
-                  const response = await fetch('$effectiveUrl');
-                  const blob = await response.blob();
-                  return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.onerror = () => reject('FileReader failed');
-                    reader.readAsDataURL(blob);
-                  });
-                } catch (e) {
-                  return null;
-                }
-              })()
-            ''',
-          );
-          if (jsResult is String && jsResult.startsWith('data:')) {
-            final commaIdx = jsResult.indexOf(',');
-            if (commaIdx != -1) {
-              final header = jsResult.substring(0, commaIdx);
-              final dataStr = jsResult.substring(commaIdx + 1);
-              rawBytes = base64.decode(dataStr);
-              final mimeMatch = RegExp(r'^data:([^;]+)').firstMatch(header);
-              if (mimeMatch != null) {
-                effectiveMimeType = mimeMatch.group(1);
-              }
-            }
-          }
-        }
-      } else if (scheme == 'https') {
-        if (!AppStrings.isTrustedWalletOrigin(uri!) &&
-            !AppStrings.isTrustedGatewayOrigin(uri)) {
-          AppLogger.e('Rejected download request from untrusted origin host');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Download rejected: Untrusted domain.'),
-              ),
-            );
-          }
-          return;
-        }
-
-        final client = HttpClient();
-        final request = await client.getUrl(uri);
-        if (userAgent != null && userAgent.isNotEmpty) {
-          request.headers.set('User-Agent', userAgent);
-        }
-
-        // Forward WebView session cookies for authenticated downloads
-        if (_webViewController != null) {
-          try {
-            final cookieManager = CookieManager.instance();
-            final cookies = await cookieManager.getCookies(
-              url: WebUri(uri.toString()),
-            );
-            if (cookies.isNotEmpty) {
-              final cookieHeader = cookies
-                  .map((c) => '${c.name}=${c.value}')
-                  .join('; ');
-              request.headers.set('Cookie', cookieHeader);
-            }
-          } catch (e) {
-            AppLogger.e('Error forwarding cookies for download', e);
-          }
-        }
-
-        final response = await request.close();
-
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw HttpException(
-            'HTTP Error ${response.statusCode} while downloading file.',
-          );
-        }
-
-        final cdFileName = _parseContentDispositionFileName(
-          response.headers.value('content-disposition') ?? contentDisposition,
-        );
-        rawFileName = cdFileName ??
-            (uri.pathSegments.isNotEmpty
-                ? uri.pathSegments.last
-                : 'downloaded_file');
-        effectiveMimeType =
-            response.headers.value('content-type') ?? mimeType;
-
-        final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
-
-        if (mounted) {
-          setState(() {
-            _isDownloading = true;
-            _downloadingFileName = fileName;
-            _downloadProgress = 0.1;
-          });
-        }
-
-        final tempDir = await getTemporaryDirectory();
-        final tempPath = '${tempDir.path}/temp_$fileName';
-        partialFile = File(tempPath);
-
-        await partialFile.parent.create(recursive: true);
-        final sink = partialFile.openWrite();
-
-        final total = response.contentLength > 0
-            ? response.contentLength
-            : contentLength;
-        int received = 0;
-
-        await for (final chunk in response) {
-          received += chunk.length;
-          sink.add(chunk);
-          if (total > 0 && mounted) {
-            setState(() {
-              _downloadProgress = (received / total).clamp(0.0, 1.0);
-            });
-          }
-        }
-        await sink.flush();
-        await sink.close();
-      } else {
+      final uri = Uri.parse(url);
+      if (uri.scheme.toLowerCase() != 'https') {
         AppLogger.e('Rejected insecure download request (non-HTTPS)');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -582,36 +425,95 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         return;
       }
 
-      if (rawBytes != null) {
-        final cdFileName = _parseContentDispositionFileName(contentDisposition);
-        rawFileName = cdFileName ?? 'downloaded_file';
-        final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
+      final isOfficialHost = AppStrings.isTrustedWalletOrigin(uri);
+      final isTrustedGateway = AppStrings.isTrustedGatewayOrigin(uri);
 
+      if (!isOfficialHost && !isTrustedGateway) {
+        AppLogger.e('Rejected download request from untrusted origin host');
         if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Download rejected: Untrusted domain.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final client = HttpClient();
+      final request = await client.getUrl(uri);
+      if (userAgent != null && userAgent.isNotEmpty) {
+        request.headers.set('User-Agent', userAgent);
+      }
+
+      // Forward WebView session cookies for authenticated downloads
+      if (_webViewController != null) {
+        try {
+          final cookieManager = CookieManager.instance();
+          final cookies = await cookieManager.getCookies(
+            url: WebUri(uri.toString()),
+          );
+          if (cookies.isNotEmpty) {
+            final cookieHeader = cookies
+                .map((c) => '${c.name}=${c.value}')
+                .join('; ');
+            request.headers.set('Cookie', cookieHeader);
+          }
+        } catch (e) {
+          AppLogger.e('Error forwarding cookies for download', e);
+        }
+      }
+
+      final response = await request.close();
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException(
+          'HTTP Error ${response.statusCode} while downloading file.',
+        );
+      }
+
+      final cdFileName = _parseContentDispositionFileName(
+        response.headers.value('content-disposition') ?? contentDisposition,
+      );
+      final rawFileName = cdFileName ??
+          (uri.pathSegments.isNotEmpty
+              ? uri.pathSegments.last
+              : 'downloaded_file');
+      final effectiveMimeType =
+          response.headers.value('content-type') ?? mimeType;
+      final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
+
+      setState(() {
+        _isDownloading = true;
+        _downloadingFileName = fileName;
+        _downloadProgress = 0.1;
+      });
+
+      final tempDir = await getTemporaryDirectory();
+      final tempPath = '${tempDir.path}/temp_$fileName';
+      partialFile = File(tempPath);
+
+      await partialFile.parent.create(recursive: true);
+      final sink = partialFile.openWrite();
+
+      final total = response.contentLength > 0
+          ? response.contentLength
+          : contentLength;
+      int received = 0;
+
+      await for (final chunk in response) {
+        received += chunk.length;
+        sink.add(chunk);
+        if (total > 0 && mounted) {
           setState(() {
-            _isDownloading = true;
-            _downloadingFileName = fileName;
-            _downloadProgress = 0.5;
+            _downloadProgress = (received / total).clamp(0.0, 1.0);
           });
         }
-
-        final tempDir = await getTemporaryDirectory();
-        final tempPath = '${tempDir.path}/temp_$fileName';
-        partialFile = File(tempPath);
-        await partialFile.parent.create(recursive: true);
-        await partialFile.writeAsBytes(rawBytes);
       }
+      await sink.flush();
+      await sink.close();
 
-      if (partialFile == null || !await partialFile.exists()) {
-        throw Exception('Download temp file creation failed.');
-      }
-
-      final fileName = _sanitizeFileName(
-        _parseContentDispositionFileName(contentDisposition) ?? rawFileName,
-        effectiveMimeType,
-      );
-
-      String targetOpenPath = partialFile.path;
+      String targetOpenPath = tempPath;
       String displaySavedName = fileName;
 
       if (Platform.isAndroid) {
@@ -619,7 +521,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         final String? publicSavedPath = await channel.invokeMethod<String>(
           'saveToDownloads',
           {
-            'tempFilePath': partialFile.path,
+            'tempFilePath': tempPath,
             'fileName': fileName,
             'mimeType': effectiveMimeType ?? '*/*',
           },
@@ -1321,62 +1223,45 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Generic function for contact picking with aliased responses for web frontend compatibility
-                    Future<dynamic> handleContactPickerCall() async {
-                      if (!await _isCurrentUrlTrusted(controller)) {
-                        AppLogger.e('Rejected contact request from untrusted origin');
-                        return null;
-                      }
-                      try {
-                        final status = await Permission.contacts.request();
-                        if (!status.isGranted && !status.isLimited) {
-                          _showRuntimePermissionDeniedDialog(Permission.contacts);
+                    // Expose 'pickContact' handler for user contact selection
+                    controller.addJavaScriptHandler(
+                      handlerName: 'pickContact',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected pickContact request from untrusted origin');
                           return null;
                         }
+                        try {
+                          final status = await Permission.contacts.request();
+                          if (!status.isGranted && !status.isLimited) {
+                            _showRuntimePermissionDeniedDialog(Permission.contacts);
+                            return null;
+                          }
 
-                        final contact = await FlutterContacts.openExternalPick();
-                        if (contact == null) return null;
+                          final contact = await FlutterContacts.openExternalPick();
+                          if (contact == null) return null;
 
-                        final fullContact = await FlutterContacts.getContact(contact.id);
-                        final selected = fullContact ?? contact;
+                          // Retrieve full details for selected contact safely
+                          final fullContact = await FlutterContacts.getContact(contact.id);
+                          final selected = fullContact ?? contact;
 
-                        final name = selected.displayName.trim();
-                        final phones = selected.phones
-                            .map((p) => p.number.replaceAll(RegExp(r'\s+'), ''))
-                            .where((p) => p.isNotEmpty)
-                            .toList();
-                        final emails = selected.emails
-                            .map((e) => e.address.trim())
-                            .where((e) => e.isNotEmpty)
-                            .toList();
+                          final name = selected.displayName.trim();
+                          final phones = selected.phones.map((p) => p.number.replaceAll(RegExp(r'\s+'), '')).where((p) => p.isNotEmpty).toList();
+                          final emails = selected.emails.map((e) => e.address.trim()).where((e) => e.isNotEmpty).toList();
 
-                        final primaryPhone = phones.isNotEmpty ? phones.first : '';
-                        final primaryEmail = emails.isNotEmpty ? emails.first : '';
-
-                        return {
-                          'displayName': name,
-                          'name': name,
-                          'primaryPhone': primaryPhone,
-                          'phone': primaryPhone,
-                          'phoneNumber': primaryPhone,
-                          'phones': phones,
-                          'primaryEmail': primaryEmail,
-                          'email': primaryEmail,
-                          'emails': emails,
-                        };
-                      } catch (e) {
-                        AppLogger.e('Error picking contact', e);
-                        return null;
-                      }
-                    }
-
-                    // Expose 'pickContact', 'getContacts', 'selectContact', 'chooseContact' handlers for web compatibility
-                    for (final handler in ['pickContact', 'getContacts', 'selectContact', 'chooseContact']) {
-                      controller.addJavaScriptHandler(
-                        handlerName: handler,
-                        callback: (args) => handleContactPickerCall(),
-                      );
-                    }
+                          return {
+                            'displayName': name,
+                            'primaryPhone': phones.isNotEmpty ? phones.first : '',
+                            'phones': phones,
+                            'primaryEmail': emails.isNotEmpty ? emails.first : '',
+                            'emails': emails,
+                          };
+                        } catch (e) {
+                          AppLogger.e('Error picking contact', e);
+                          return null;
+                        }
+                      },
+                    );
 
                     // Expose 'getRememberedEmail' handler for secure email restoration
                     controller.addJavaScriptHandler(
@@ -1508,12 +1393,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
-                    final navHadError = _failedNavigationIds.contains(_activeNavigationId);
+                    final currentNavId = _activeNavigationId;
+                    final navHadError = _failedNavIds.contains(currentNavId);
 
                     if (mounted) {
                       if (_hasLoadError) {
                         final isCurrentRecovery = _recoveryNavigationId != null &&
-                            _recoveryNavigationId == _activeNavigationId;
+                            currentNavId >= _recoveryNavigationId!;
                         final isValidRecovery = isCurrentRecovery &&
                             !navHadError &&
                             !isErrorUrl &&
@@ -1525,6 +1411,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _hasLoadError = false;
                             _isCrashing = false;
                             _isUserRetrying = false;
+                            _lastSuccessfulNavId = currentNavId;
                             _recoveryNavigationId = null;
                           });
                         } else {
@@ -1541,6 +1428,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _hasLoadError = true;
                           });
                         } else {
+                          if (isTrustedUrl) {
+                            _lastSuccessfulNavId = currentNavId;
+                          }
                           setState(() {
                             _isOnline = isConnected;
                           });
@@ -1563,7 +1453,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
-                      _failedNavigationIds.add(_activeNavigationId);
+                      _failedNavIds.add(_activeNavigationId);
+
+                      // Ignore stale error callbacks if the current or a newer navigation has already completed successfully
+                      if (_lastSuccessfulNavId != null &&
+                          _activeNavigationId <= _lastSuccessfulNavId!) {
+                        return;
+                      }
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
@@ -1589,7 +1485,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
-                      _failedNavigationIds.add(_activeNavigationId);
+                      _failedNavIds.add(_activeNavigationId);
+
+                      // Ignore stale error callbacks if the current or a newer navigation has already completed successfully
+                      if (_lastSuccessfulNavId != null &&
+                          _activeNavigationId <= _lastSuccessfulNavId!) {
+                        return;
+                      }
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
