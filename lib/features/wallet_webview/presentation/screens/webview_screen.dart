@@ -47,6 +47,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _isUserRetrying = false;
   Timer? _loadingTimeoutTimer;
 
+  int _loadAttemptId = 0;
+  int _failedAttemptId = -1;
+
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
 
@@ -173,6 +176,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
+        _failedAttemptId = _loadAttemptId;
         final wasUserRetrying = _isUserRetrying;
         setState(() {
           _hasLoadError = true;
@@ -194,9 +198,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     // Immediate haptic feedback on user button press across iOS & Android system settings
     HapticFeedback.vibrate();
 
+    _loadAttemptId++;
+    _failedAttemptId = -1;
+
     if (mounted) {
       setState(() {
         _isUserRetrying = true;
+        _hasLoadError = true;
         // Keep _hasLoadError = true so error overlay remains mounted covering WebView completely
       });
     }
@@ -219,6 +227,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       setState(() {
         _isOnline = true;
         _isUserRetrying = true;
+        _hasLoadError = true;
       });
       _startLoadingTimer();
       if (_webViewController != null) {
@@ -1364,13 +1373,39 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _stopLoadingTimer();
                     webViewNotifier.setLoading(false);
 
-                    // Successful main-frame load completes
+                    final urlString = url?.toString().toLowerCase() ?? '';
+                    final isErrorUrl = urlString.startsWith('about:') ||
+                        urlString.startsWith('chrome-error:') ||
+                        urlString.contains('net::err_');
+
+                    final connectivity = ref.read(connectivityServiceProvider);
+                    final isConnected = await connectivity.isConnected;
+
+                    // Only reveal WebView if current attempt had no errors, internet is online, and URL is valid
                     if (mounted) {
-                      setState(() {
-                        _hasLoadError = false;
-                        _isCrashing = false;
-                        _isUserRetrying = false;
-                      });
+                      if (_hasLoadError) {
+                        if (_failedAttemptId != _loadAttemptId &&
+                            isConnected &&
+                            !isErrorUrl) {
+                          setState(() {
+                            _isOnline = true;
+                            _hasLoadError = false;
+                            _isCrashing = false;
+                            _isUserRetrying = false;
+                          });
+                        } else {
+                          setState(() {
+                            _isOnline = isConnected;
+                            _hasLoadError = true;
+                            _isUserRetrying = false;
+                          });
+                        }
+                      } else {
+                        setState(() {
+                          _isOnline = isConnected;
+                          _hasLoadError = isErrorUrl;
+                        });
+                      }
                     }
 
                     // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
@@ -1388,6 +1423,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
+                      _failedAttemptId = _loadAttemptId;
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
@@ -1412,6 +1448,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
+                      _failedAttemptId = _loadAttemptId;
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
