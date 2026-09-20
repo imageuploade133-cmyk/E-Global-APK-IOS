@@ -324,13 +324,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
     if (!name.contains('.')) {
       final ext = _getExtensionFromMimeType(mimeType);
-      name = '$name$ext';
+      if (ext.isNotEmpty) {
+        name = '$name$ext';
+      }
     }
     return name;
   }
 
   String _getExtensionFromMimeType(String? mimeType) {
-    if (mimeType == null || mimeType.isEmpty) return '.pdf';
+    if (mimeType == null || mimeType.isEmpty) return '';
     final mime = mimeType.toLowerCase().split(';').first.trim();
     switch (mime) {
       case 'application/pdf':
@@ -357,22 +359,35 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
         return '.pptx';
       default:
-        return '.pdf';
+        return '';
     }
   }
 
   String? _parseContentDispositionFileName(String? contentDisposition) {
     if (contentDisposition == null || contentDisposition.isEmpty) return null;
     try {
-      final regExp = RegExp(
-        r'''filename\*?=(?:["']?([^"';]+)["']?|UTF-8''(.+))''',
+      // 1. Check for RFC 5987 style: filename*=UTF-8''encoded_name.ext or filename*=utf-8'lang'encoded_name.ext
+      final utf8Match = RegExp(
+        r'''filename\*\s*=\s*(?:utf-8|UTF-8)['"]*['"]*(?:[^'\n]*)['"]*['"]*([^;\n]+)''',
         caseSensitive: false,
-      );
-      final match = regExp.firstMatch(contentDisposition);
-      if (match != null) {
-        final rawMatch = match.group(2) ?? match.group(1);
-        if (rawMatch != null && rawMatch.isNotEmpty) {
+      ).firstMatch(contentDisposition);
+      if (utf8Match != null) {
+        var rawMatch = utf8Match.group(1)?.trim() ?? '';
+        rawMatch = rawMatch.replaceAll(RegExp(r"^['']+|['']+$"), '');
+        if (rawMatch.isNotEmpty) {
           return Uri.decodeComponent(rawMatch);
+        }
+      }
+
+      // 2. Check for standard style: filename="normal_name.ext" or filename=normal_name.ext
+      final stdMatch = RegExp(
+        r'''filename\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\n]+))''',
+        caseSensitive: false,
+      ).firstMatch(contentDisposition);
+      if (stdMatch != null) {
+        final rawMatch = stdMatch.group(1) ?? stdMatch.group(2) ?? stdMatch.group(3);
+        if (rawMatch != null && rawMatch.trim().isNotEmpty) {
+          return rawMatch.trim();
         }
       }
     } catch (_) {}
@@ -390,7 +405,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       final uri = Uri.parse(url);
       if (uri.scheme.toLowerCase() != 'https') {
-        AppLogger.e('Rejected insecure download URL: $url');
+        AppLogger.e('Rejected insecure download request (non-HTTPS)');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Insecure downloads are blocked.')),
@@ -403,7 +418,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final isTrustedGateway = AppStrings.isTrustedGatewayOrigin(uri);
 
       if (!isOfficialHost && !isTrustedGateway) {
-        AppLogger.e('Rejected download from untrusted host: ${uri.host}');
+        AppLogger.e('Rejected download request from untrusted origin host');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -602,6 +617,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final cleanBase64 = base64Data.contains(',')
           ? base64Data.split(',').last
           : base64Data;
+
+      // Memory safety ceiling check prior to base64 decoding (max ~100MB string length = ~75MB binary)
+      const maxBase64Length = 100 * 1024 * 1024;
+      if (cleanBase64.length > maxBase64Length) {
+        AppLogger.e('Base64 share payload exceeds maximum memory safety threshold');
+        return;
+      }
 
       final safeName = _sanitizeFileName(fileName);
       final bytes = base64.decode(cleanBase64);
