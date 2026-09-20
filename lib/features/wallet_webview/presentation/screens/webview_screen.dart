@@ -47,6 +47,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _isUserRetrying = false;
   Timer? _loadingTimeoutTimer;
 
+  int _loadAttemptId = 0;
+  int? _recoveryAttemptId;
+  bool _mainFrameLoading = false;
+  bool _recoveryCompleted = false;
+  String? _loadingMainFrameUrl;
+
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
 
@@ -174,6 +180,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
         final wasUserRetrying = _isUserRetrying;
+        _mainFrameLoading = false;
+        _recoveryAttemptId = null;
         setState(() {
           _hasLoadError = true;
           _isCrashing = false;
@@ -192,12 +200,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   Future<void> _checkConnectionAndReload() async {
     // Immediate haptic feedback on user button press across iOS & Android system settings
+    HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
+
+    final recoveryAttemptId = ++_loadAttemptId;
+    _recoveryAttemptId = recoveryAttemptId;
+    _recoveryCompleted = false;
+    _mainFrameLoading = true;
 
     if (mounted) {
       setState(() {
         _isUserRetrying = true;
-        // Keep _hasLoadError = true so error overlay remains mounted covering WebView completely
+        _hasLoadError = true;
+        // Keep the overlay mounted over the SAME WebView for the entire recovery attempt.
       });
     }
 
@@ -205,7 +220,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final isConnected = await connectivity.isConnected;
 
     if (!isConnected) {
-      if (mounted) {
+      if (mounted && _recoveryAttemptId == recoveryAttemptId) {
+        _mainFrameLoading = false;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -215,17 +231,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _isOnline = true;
-        _isUserRetrying = true;
-      });
-      _startLoadingTimer();
-      if (_webViewController != null) {
-        await _webViewController!.loadUrl(
-          urlRequest: URLRequest(url: WebUri(_currentUrl)),
-        );
-      }
+    if (!mounted || _recoveryAttemptId != recoveryAttemptId) return;
+
+    setState(() {
+      _isOnline = true;
+      _isUserRetrying = true;
+      _hasLoadError = true;
+    });
+    _startLoadingTimer();
+    final controller = _webViewController;
+    if (controller != null && _recoveryAttemptId == recoveryAttemptId) {
+      await controller.loadUrl(
+        urlRequest: URLRequest(url: WebUri(_currentUrl)),
+      );
     }
   }
 
@@ -1353,6 +1371,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
+                    _loadAttemptId++;
+                    _mainFrameLoading = true;
+                    _loadingMainFrameUrl = url?.toString();
+                    if (_isUserRetrying) {
+                      _recoveryAttemptId = _loadAttemptId;
+                      _recoveryCompleted = false;
+                    }
+
                     if (url != null) {
                       _currentUrl = url.toString();
                     }
@@ -1364,19 +1390,62 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _stopLoadingTimer();
                     webViewNotifier.setLoading(false);
 
-                    // Successful main-frame load completes
+                    final completedAttemptId = _loadAttemptId;
+                    final completedRecoveryId = _recoveryAttemptId;
+                    _mainFrameLoading = false;
+                    _loadingMainFrameUrl = null;
+
+                    final urlString = url?.toString().toLowerCase() ?? '';
+                    final isErrorUrl = urlString.isEmpty ||
+                        urlString.startsWith('about:') ||
+                        urlString.startsWith('chrome-error:') ||
+                        urlString.contains('net::err_');
+
+                    final isTrustedUrl = url != null &&
+                        (AppStrings.isTrustedWalletOrigin(url) ||
+                         AppStrings.isTrustedGatewayOrigin(url));
+
+                    final connectivity = ref.read(connectivityServiceProvider);
+                    final isConnected = await connectivity.isConnected;
+
                     if (mounted) {
-                      setState(() {
-                        _hasLoadError = false;
-                        _isCrashing = false;
-                        _isUserRetrying = false;
-                      });
+                      final isValidRecovery = completedRecoveryId != null &&
+                          completedRecoveryId == completedAttemptId &&
+                          !_recoveryCompleted &&
+                          !isErrorUrl &&
+                          isTrustedUrl &&
+                          isConnected;
+
+                      if (_hasLoadError) {
+                        if (isValidRecovery) {
+                          _recoveryCompleted = true;
+                          _recoveryAttemptId = null;
+                          setState(() {
+                            _isOnline = true;
+                            _hasLoadError = false;
+                            _isCrashing = false;
+                            _isUserRetrying = false;
+                          });
+                        } else {
+                          setState(() {
+                            _isOnline = isConnected;
+                            _hasLoadError = true;
+                            _isUserRetrying = false;
+                          });
+                        }
+                      } else if (isErrorUrl || !isTrustedUrl) {
+                        setState(() {
+                          _isOnline = isConnected;
+                          _hasLoadError = true;
+                        });
+                      } else {
+                        setState(() {
+                          _isOnline = isConnected;
+                        });
+                      }
                     }
 
-                    // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
                     _restoreSystemUi();
-
-                    // Inject form security, autofill prevention, and email restoration scripts
                     await _injectSecurityAndAutofillScripts(controller);
                     await _injectRememberEmailScript(controller);
                   },
@@ -1388,21 +1457,35 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
+                      // Keep the recovery overlay mounted; timeout decides recovery failure.
+                      if (_isUserRetrying) return;
+                      if (!_mainFrameLoading) return;
+
+                      final attemptAtCallback = _loadAttemptId;
+                      final loadingUrlAtCallback = _loadingMainFrameUrl;
+                      final requestUrl = request.url?.toString();
+
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
-                      if (mounted) {
-                        final wasUserRetrying = _isUserRetrying;
+
+                      // Never let a callback mutate a newer navigation.
+                      if (mounted &&
+                          _mainFrameLoading &&
+                          _loadAttemptId == attemptAtCallback &&
+                          _loadingMainFrameUrl == loadingUrlAtCallback &&
+                          (loadingUrlAtCallback == null ||
+                              requestUrl == null ||
+                              requestUrl == loadingUrlAtCallback)) {
+                        _mainFrameLoading = false;
+                        _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
                           _isUserRetrying = false;
                         });
-                        if (wasUserRetrying) {
-                          HapticFeedback.vibrate();
-                        }
                       }
                     }
                   },
@@ -1412,21 +1495,33 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
+                      if (_isUserRetrying) return;
+                      if (!_mainFrameLoading) return;
+
+                      final attemptAtCallback = _loadAttemptId;
+                      final loadingUrlAtCallback = _loadingMainFrameUrl;
+                      final requestUrl = request.url?.toString();
+
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
-                      if (mounted) {
-                        final wasUserRetrying = _isUserRetrying;
+
+                      if (mounted &&
+                          _mainFrameLoading &&
+                          _loadAttemptId == attemptAtCallback &&
+                          _loadingMainFrameUrl == loadingUrlAtCallback &&
+                          (loadingUrlAtCallback == null ||
+                              requestUrl == null ||
+                              requestUrl == loadingUrlAtCallback)) {
+                        _mainFrameLoading = false;
+                        _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
                           _isCrashing = false;
                           _isUserRetrying = false;
                         });
-                        if (wasUserRetrying) {
-                          HapticFeedback.vibrate();
-                        }
                       }
                     }
                   },
