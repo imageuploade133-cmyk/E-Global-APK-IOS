@@ -212,7 +212,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _hasLoadError = true;
           _isUserRetrying = false;
         });
-        HapticFeedback.vibrate();
       }
       return;
     }
