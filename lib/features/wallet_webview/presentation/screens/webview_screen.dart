@@ -484,22 +484,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         );
       }
 
-      final dirPath = await _getDownloadDirectoryPath();
-      var filePath = '$dirPath/$fileName';
-
-      // Prevent accidental overwrite of existing files with duplicate names
-      var fileCounter = 1;
-      final dotIdx = fileName.lastIndexOf('.');
-      final baseName = dotIdx != -1 ? fileName.substring(0, dotIdx) : fileName;
-      final extName = dotIdx != -1 ? fileName.substring(dotIdx) : '';
-
-      while (await File(filePath).exists()) {
-        filePath = '$dirPath/${baseName}_$fileCounter$extName';
-        fileCounter++;
-      }
-
-      final finalFileName = filePath.split('/').last;
-      partialFile = File(filePath);
+      final tempDir = await getTemporaryDirectory();
+      final tempPath = '${tempDir.path}/temp_$fileName';
+      partialFile = File(tempPath);
 
       await partialFile.parent.create(recursive: true);
       final sink = partialFile.openWrite();
@@ -521,6 +508,49 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       await sink.flush();
       await sink.close();
 
+      String targetOpenPath = tempPath;
+      String displaySavedName = fileName;
+
+      if (Platform.isAndroid) {
+        try {
+          const channel = MethodChannel('com.eglobal.wallet/mediastore');
+          final String? publicSavedPath = await channel.invokeMethod<String>(
+            'saveToDownloads',
+            {
+              'tempFilePath': tempPath,
+              'fileName': fileName,
+              'mimeType': effectiveMimeType ?? '*/*',
+            },
+          );
+          if (publicSavedPath != null && publicSavedPath.isNotEmpty) {
+            targetOpenPath = publicSavedPath;
+            displaySavedName = fileName;
+          }
+        } catch (e) {
+          AppLogger.e('MediaStore save failed, falling back to local file', e);
+        }
+      } else {
+        final dirPath = await _getDownloadDirectoryPath();
+        var filePath = '$dirPath/$fileName';
+        var fileCounter = 1;
+        final dotIdx = fileName.lastIndexOf('.');
+        final baseName = dotIdx != -1 ? fileName.substring(0, dotIdx) : fileName;
+        final extName = dotIdx != -1 ? fileName.substring(dotIdx) : '';
+
+        while (await File(filePath).exists()) {
+          filePath = '$dirPath/${baseName}_$fileCounter$extName';
+          fileCounter++;
+        }
+
+        final targetFile = File(filePath);
+        await partialFile.copy(targetFile.path);
+        try {
+          await partialFile.delete();
+        } catch (_) {}
+        targetOpenPath = targetFile.path;
+        displaySavedName = filePath.split('/').last;
+      }
+
       if (mounted) {
         setState(() {
           _isDownloading = false;
@@ -529,12 +559,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Downloaded: $finalFileName'),
+            content: Text('Downloaded: $displaySavedName'),
             action: SnackBarAction(
               label: 'Open',
               textColor: Colors.orange,
               onPressed: () async {
-                await OpenFilex.open(filePath);
+                await OpenFilex.open(targetOpenPath);
               },
             ),
           ),
