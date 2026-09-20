@@ -1,23 +1,23 @@
-import 'dart:developer' as developer;
+import 'package:flutter/foundation.dart';
 
 class AppLogger {
-  static void d(String message) {
-    assert(() {
-      developer.log('[DEBUG] $message', name: 'E-Global Pay');
-      return true;
-    }());
+  AppLogger._();
+
+  static void debug(String message, {String? tag}) {
+    if (kDebugMode) {
+      debugPrint('[$tag ?? "APP"] $message');
+    }
   }
 
-  static void e(String message, [Object? error, StackTrace? stackTrace]) {
-    developer.log(
-      '[ERROR] $message',
-      name: 'E-Global Wallet',
-      error: error,
-      stackTrace: stackTrace,
-    );
+  static void info(String message, {String? tag}) {
+    debugPrint('ℹ [$tag ?? "APP"] $message');
   }
 
-  static void i(String message) {
-    developer.log('[INFO] $message', name: 'E-Global Pay');
+  static void warning(String message, {String? tag}) {
+    debugPrint('⚠ [$tag ?? "APP"] $message');
+  }
+
+  static void error(String message, {String? tag, Object? error}) {
+    debugPrint('✕ [$tag ?? "APP"] $message${error != null ? ' → $error' : ''}');
   }
 }
