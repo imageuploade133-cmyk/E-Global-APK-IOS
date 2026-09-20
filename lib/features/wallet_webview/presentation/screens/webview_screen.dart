@@ -47,10 +47,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _isUserRetrying = false;
   Timer? _loadingTimeoutTimer;
 
-  int _activeNavigationId = 0;
-  int? _recoveryNavigationId;
-  int? _lastSuccessfulNavId;
-  final Set<int> _failedNavIds = {};
+  int _loadAttemptId = 0;
+  int? _recoveryAttemptId;
+  bool _mainFrameLoading = false;
+  bool _recoveryCompleted = false;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
@@ -178,8 +178,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
-        _failedNavIds.add(_activeNavigationId);
         final wasUserRetrying = _isUserRetrying;
+        _mainFrameLoading = false;
+        _recoveryAttemptId = null;
         setState(() {
           _hasLoadError = true;
           _isCrashing = false;
@@ -201,13 +202,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
-    _recoveryNavigationId = null;
+    final recoveryAttemptId = ++_loadAttemptId;
+    _recoveryAttemptId = recoveryAttemptId;
+    _recoveryCompleted = false;
+    _mainFrameLoading = true;
 
     if (mounted) {
       setState(() {
         _isUserRetrying = true;
         _hasLoadError = true;
-        // Keep _hasLoadError = true so error overlay remains mounted covering WebView completely
+        // Keep the overlay mounted over the SAME WebView for the entire recovery attempt.
       });
     }
 
@@ -215,7 +219,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final isConnected = await connectivity.isConnected;
 
     if (!isConnected) {
-      if (mounted) {
+      if (mounted && _recoveryAttemptId == recoveryAttemptId) {
+        _mainFrameLoading = false;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -225,18 +230,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _isOnline = true;
-        _isUserRetrying = true;
-        _hasLoadError = true;
-      });
-      _startLoadingTimer();
-      if (_webViewController != null) {
-        await _webViewController!.loadUrl(
-          urlRequest: URLRequest(url: WebUri(_currentUrl)),
-        );
-      }
+    if (!mounted || _recoveryAttemptId != recoveryAttemptId) return;
+
+    setState(() {
+      _isOnline = true;
+      _isUserRetrying = true;
+      _hasLoadError = true;
+    });
+    _startLoadingTimer();
+    final controller = _webViewController;
+    if (controller != null && _recoveryAttemptId == recoveryAttemptId) {
+      await controller.loadUrl(
+        urlRequest: URLRequest(url: WebUri(_currentUrl)),
+      );
     }
   }
 
@@ -1364,9 +1370,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     }
                   },
                   onLoadStart: (controller, url) {
-                    _activeNavigationId++;
-                    if (_isUserRetrying && _recoveryNavigationId == null) {
-                      _recoveryNavigationId = _activeNavigationId;
+                    _loadAttemptId++;
+                    _mainFrameLoading = true;
+                    if (_isUserRetrying && _recoveryAttemptId == null) {
+                      _recoveryAttemptId = _loadAttemptId;
+                      _recoveryCompleted = false;
                     }
 
                     if (url != null) {
@@ -1379,6 +1387,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStop: (controller, url) async {
                     _stopLoadingTimer();
                     webViewNotifier.setLoading(false);
+
+                    final completedAttemptId = _loadAttemptId;
+                    final completedRecoveryId = _recoveryAttemptId;
+                    _mainFrameLoading = false;
 
                     final urlString = url?.toString().toLowerCase() ?? '';
                     final isErrorUrl = urlString.isEmpty ||
@@ -1393,26 +1405,23 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
-                    final currentNavId = _activeNavigationId;
-                    final navHadError = _failedNavIds.contains(currentNavId);
-
                     if (mounted) {
-                      if (_hasLoadError) {
-                        final isCurrentRecovery = _recoveryNavigationId != null &&
-                            currentNavId >= _recoveryNavigationId!;
-                        final isValidRecovery = isCurrentRecovery &&
-                            !navHadError &&
-                            !isErrorUrl &&
-                            isTrustedUrl;
+                      final isValidRecovery = completedRecoveryId != null &&
+                          completedRecoveryId == completedAttemptId &&
+                          !_recoveryCompleted &&
+                          !isErrorUrl &&
+                          isTrustedUrl &&
+                          isConnected;
 
+                      if (_hasLoadError) {
                         if (isValidRecovery) {
+                          _recoveryCompleted = true;
+                          _recoveryAttemptId = null;
                           setState(() {
                             _isOnline = true;
                             _hasLoadError = false;
                             _isCrashing = false;
                             _isUserRetrying = false;
-                            _lastSuccessfulNavId = currentNavId;
-                            _recoveryNavigationId = null;
                           });
                         } else {
                           setState(() {
@@ -1421,27 +1430,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _isUserRetrying = false;
                           });
                         }
+                      } else if (isErrorUrl || !isTrustedUrl) {
+                        setState(() {
+                          _isOnline = isConnected;
+                          _hasLoadError = true;
+                        });
                       } else {
-                        if (navHadError || isErrorUrl) {
-                          setState(() {
-                            _isOnline = isConnected;
-                            _hasLoadError = true;
-                          });
-                        } else {
-                          if (isTrustedUrl) {
-                            _lastSuccessfulNavId = currentNavId;
-                          }
-                          setState(() {
-                            _isOnline = isConnected;
-                          });
-                        }
+                        setState(() {
+                          _isOnline = isConnected;
+                        });
                       }
                     }
 
-                    // Restore normal Android system UI and dismiss splash screen seamlessly once loaded
                     _restoreSystemUi();
-
-                    // Inject form security, autofill prevention, and email restoration scripts
                     await _injectSecurityAndAutofillScripts(controller);
                     await _injectRememberEmailScript(controller);
                   },
@@ -1450,23 +1451,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onReceivedError: (controller, request, error) async {
                     AppLogger.e(
-                      'WebView error handled: ${error.description}',
+                      'WebView error handled: \${error.description}',
                     );
                     if (request.isForMainFrame == true) {
-                      _failedNavIds.add(_activeNavigationId);
-
-                      // Ignore stale error callbacks if the current or a newer navigation has already completed successfully
-                      if (_lastSuccessfulNavId != null &&
-                          _activeNavigationId <= _lastSuccessfulNavId!) {
-                        return;
-                      }
+                      if (!_mainFrameLoading) return;
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
-                      if (mounted) {
+                      if (mounted && _mainFrameLoading) {
                         final wasUserRetrying = _isUserRetrying;
+                        _mainFrameLoading = false;
+                        _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
@@ -1481,24 +1478,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onReceivedHttpError: (controller, request, errorResponse) async {
                     AppLogger.e(
-                      'WebView HTTP error handled: ${errorResponse.statusCode}',
+                      'WebView HTTP error handled: \${errorResponse.statusCode}',
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
-                      _failedNavIds.add(_activeNavigationId);
-
-                      // Ignore stale error callbacks if the current or a newer navigation has already completed successfully
-                      if (_lastSuccessfulNavId != null &&
-                          _activeNavigationId <= _lastSuccessfulNavId!) {
-                        return;
-                      }
+                      if (!_mainFrameLoading) return;
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
-                      if (mounted) {
+                      if (mounted && _mainFrameLoading) {
                         final wasUserRetrying = _isUserRetrying;
+                        _mainFrameLoading = false;
+                        _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
                           _hasLoadError = true;
