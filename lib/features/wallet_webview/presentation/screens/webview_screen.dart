@@ -200,10 +200,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     HapticFeedback.lightImpact();
     HapticFeedback.vibrate();
 
-    final navId = ++_activeNavigationId;
-    _recoveryNavigationId = navId;
-    _activeNavigationHadError = false;
-
     if (mounted) {
       setState(() {
         _isUserRetrying = true;
@@ -1484,7 +1480,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStart: (controller, url) {
                     _activeNavigationId++;
                     _activeNavigationHadError = false;
-                    if (_hasLoadError) {
+                    if (_isUserRetrying) {
                       _recoveryNavigationId = _activeNavigationId;
                     }
 
