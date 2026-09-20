@@ -300,11 +300,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final List<Permission> permissionsToRequest = [];
 
     for (final resource in permissionRequest.resources) {
-      if (resource.toString().contains('AUDIO_CAPTURE') ||
-          resource.toString().contains('microphone')) {
+      final resStr = resource.toString().toLowerCase();
+      if (resStr.contains('audio_capture') ||
+          resStr.contains('microphone') ||
+          resStr.contains('audio')) {
         permissionsToRequest.add(Permission.microphone);
-      } else if (resource.toString().contains('VIDEO_CAPTURE') ||
-          resource.toString().contains('camera')) {
+      } else if (resStr.contains('video_capture') ||
+          resStr.contains('camera') ||
+          resStr.contains('video')) {
         permissionsToRequest.add(Permission.camera);
       }
     }
@@ -416,8 +419,163 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   ) async {
     File? partialFile;
     try {
-      final uri = Uri.parse(url);
-      if (uri.scheme.toLowerCase() != 'https') {
+      List<int>? rawBytes;
+      String? effectiveMimeType = mimeType;
+      String rawFileName = 'downloaded_file';
+
+      var effectiveUrl = url.trim();
+      var uri = Uri.tryParse(effectiveUrl);
+
+      // Upgrade HTTP scheme to HTTPS if host matches trusted wallet or gateway origin
+      if (uri != null && uri.scheme.toLowerCase() == 'http') {
+        final testHttps = uri.replace(scheme: 'https');
+        if (AppStrings.isTrustedWalletOrigin(testHttps) ||
+            AppStrings.isTrustedGatewayOrigin(testHttps)) {
+          uri = testHttps;
+          effectiveUrl = uri.toString();
+        }
+      }
+
+      final scheme = uri?.scheme.toLowerCase() ?? '';
+
+      if (scheme == 'data') {
+        final commaIdx = effectiveUrl.indexOf(',');
+        if (commaIdx != -1) {
+          final header = effectiveUrl.substring(0, commaIdx);
+          final dataStr = effectiveUrl.substring(commaIdx + 1);
+          if (header.contains(';base64')) {
+            rawBytes = base64.decode(dataStr);
+          } else {
+            rawBytes = utf8.encode(Uri.decodeComponent(dataStr));
+          }
+          final mimeMatch = RegExp(r'^data:([^;]+)').firstMatch(header);
+          if (mimeMatch != null) {
+            effectiveMimeType = mimeMatch.group(1);
+          }
+        }
+      } else if (scheme == 'blob') {
+        if (_webViewController != null) {
+          final jsResult = await _webViewController!.evaluateJavascript(
+            source: '''
+              (async function() {
+                try {
+                  const response = await fetch('$effectiveUrl');
+                  const blob = await response.blob();
+                  return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.onerror = () => reject('FileReader failed');
+                    reader.readAsDataURL(blob);
+                  });
+                } catch (e) {
+                  return null;
+                }
+              })()
+            ''',
+          );
+          if (jsResult is String && jsResult.startsWith('data:')) {
+            final commaIdx = jsResult.indexOf(',');
+            if (commaIdx != -1) {
+              final header = jsResult.substring(0, commaIdx);
+              final dataStr = jsResult.substring(commaIdx + 1);
+              rawBytes = base64.decode(dataStr);
+              final mimeMatch = RegExp(r'^data:([^;]+)').firstMatch(header);
+              if (mimeMatch != null) {
+                effectiveMimeType = mimeMatch.group(1);
+              }
+            }
+          }
+        }
+      } else if (scheme == 'https') {
+        if (!AppStrings.isTrustedWalletOrigin(uri!) &&
+            !AppStrings.isTrustedGatewayOrigin(uri)) {
+          AppLogger.e('Rejected download request from untrusted origin host');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Download rejected: Untrusted domain.'),
+              ),
+            );
+          }
+          return;
+        }
+
+        final client = HttpClient();
+        final request = await client.getUrl(uri);
+        if (userAgent != null && userAgent.isNotEmpty) {
+          request.headers.set('User-Agent', userAgent);
+        }
+
+        // Forward WebView session cookies for authenticated downloads
+        if (_webViewController != null) {
+          try {
+            final cookieManager = CookieManager.instance();
+            final cookies = await cookieManager.getCookies(
+              url: WebUri(uri.toString()),
+            );
+            if (cookies.isNotEmpty) {
+              final cookieHeader = cookies
+                  .map((c) => '${c.name}=${c.value}')
+                  .join('; ');
+              request.headers.set('Cookie', cookieHeader);
+            }
+          } catch (e) {
+            AppLogger.e('Error forwarding cookies for download', e);
+          }
+        }
+
+        final response = await request.close();
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw HttpException(
+            'HTTP Error ${response.statusCode} while downloading file.',
+          );
+        }
+
+        final cdFileName = _parseContentDispositionFileName(
+          response.headers.value('content-disposition') ?? contentDisposition,
+        );
+        rawFileName = cdFileName ??
+            (uri.pathSegments.isNotEmpty
+                ? uri.pathSegments.last
+                : 'downloaded_file');
+        effectiveMimeType =
+            response.headers.value('content-type') ?? mimeType;
+
+        final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
+
+        if (mounted) {
+          setState(() {
+            _isDownloading = true;
+            _downloadingFileName = fileName;
+            _downloadProgress = 0.1;
+          });
+        }
+
+        final tempDir = await getTemporaryDirectory();
+        final tempPath = '${tempDir.path}/temp_$fileName';
+        partialFile = File(tempPath);
+
+        await partialFile.parent.create(recursive: true);
+        final sink = partialFile.openWrite();
+
+        final total = response.contentLength > 0
+            ? response.contentLength
+            : contentLength;
+        int received = 0;
+
+        await for (final chunk in response) {
+          received += chunk.length;
+          sink.add(chunk);
+          if (total > 0 && mounted) {
+            setState(() {
+              _downloadProgress = (received / total).clamp(0.0, 1.0);
+            });
+          }
+        }
+        await sink.flush();
+        await sink.close();
+      } else {
         AppLogger.e('Rejected insecure download request (non-HTTPS)');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -427,95 +585,36 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         return;
       }
 
-      final isOfficialHost = AppStrings.isTrustedWalletOrigin(uri);
-      final isTrustedGateway = AppStrings.isTrustedGatewayOrigin(uri);
+      if (rawBytes != null) {
+        final cdFileName = _parseContentDispositionFileName(contentDisposition);
+        rawFileName = cdFileName ?? 'downloaded_file';
+        final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
 
-      if (!isOfficialHost && !isTrustedGateway) {
-        AppLogger.e('Rejected download request from untrusted origin host');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Download rejected: Untrusted domain.'),
-            ),
-          );
-        }
-        return;
-      }
-
-      final client = HttpClient();
-      final request = await client.getUrl(uri);
-      if (userAgent != null && userAgent.isNotEmpty) {
-        request.headers.set('User-Agent', userAgent);
-      }
-
-      // Forward WebView session cookies for authenticated downloads
-      if (_webViewController != null) {
-        try {
-          final cookieManager = CookieManager.instance();
-          final cookies = await cookieManager.getCookies(
-            url: WebUri(uri.toString()),
-          );
-          if (cookies.isNotEmpty) {
-            final cookieHeader = cookies
-                .map((c) => '${c.name}=${c.value}')
-                .join('; ');
-            request.headers.set('Cookie', cookieHeader);
-          }
-        } catch (e) {
-          AppLogger.e('Error forwarding cookies for download', e);
-        }
-      }
-
-      final response = await request.close();
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException(
-          'HTTP Error ${response.statusCode} while downloading file.',
-        );
-      }
-
-      final cdFileName = _parseContentDispositionFileName(
-        response.headers.value('content-disposition') ?? contentDisposition,
-      );
-      final rawFileName = cdFileName ??
-          (uri.pathSegments.isNotEmpty
-              ? uri.pathSegments.last
-              : 'downloaded_file');
-      final effectiveMimeType =
-          response.headers.value('content-type') ?? mimeType;
-      final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
-
-      setState(() {
-        _isDownloading = true;
-        _downloadingFileName = fileName;
-        _downloadProgress = 0.1;
-      });
-
-      final tempDir = await getTemporaryDirectory();
-      final tempPath = '${tempDir.path}/temp_$fileName';
-      partialFile = File(tempPath);
-
-      await partialFile.parent.create(recursive: true);
-      final sink = partialFile.openWrite();
-
-      final total = response.contentLength > 0
-          ? response.contentLength
-          : contentLength;
-      int received = 0;
-
-      await for (final chunk in response) {
-        received += chunk.length;
-        sink.add(chunk);
-        if (total > 0 && mounted) {
           setState(() {
-            _downloadProgress = (received / total).clamp(0.0, 1.0);
+            _isDownloading = true;
+            _downloadingFileName = fileName;
+            _downloadProgress = 0.5;
           });
         }
-      }
-      await sink.flush();
-      await sink.close();
 
-      String targetOpenPath = tempPath;
+        final tempDir = await getTemporaryDirectory();
+        final tempPath = '${tempDir.path}/temp_$fileName';
+        partialFile = File(tempPath);
+        await partialFile.parent.create(recursive: true);
+        await partialFile.writeAsBytes(rawBytes);
+      }
+
+      if (partialFile == null || !await partialFile.exists()) {
+        throw Exception('Download temp file creation failed.');
+      }
+
+      final fileName = _sanitizeFileName(
+        _parseContentDispositionFileName(contentDisposition) ?? rawFileName,
+        effectiveMimeType,
+      );
+
+      String targetOpenPath = partialFile.path;
       String displaySavedName = fileName;
 
       if (Platform.isAndroid) {
@@ -523,7 +622,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         final String? publicSavedPath = await channel.invokeMethod<String>(
           'saveToDownloads',
           {
-            'tempFilePath': tempPath,
+            'tempFilePath': partialFile.path,
             'fileName': fileName,
             'mimeType': effectiveMimeType ?? '*/*',
           },
@@ -1225,45 +1324,62 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'pickContact' handler for user contact selection
-                    controller.addJavaScriptHandler(
-                      handlerName: 'pickContact',
-                      callback: (args) async {
-                        if (!await _isCurrentUrlTrusted(controller)) {
-                          AppLogger.e('Rejected pickContact request from untrusted origin');
+                    // Generic function for contact picking with aliased responses for web frontend compatibility
+                    Future<dynamic> handleContactPickerCall() async {
+                      if (!await _isCurrentUrlTrusted(controller)) {
+                        AppLogger.e('Rejected contact request from untrusted origin');
+                        return null;
+                      }
+                      try {
+                        final status = await Permission.contacts.request();
+                        if (!status.isGranted && !status.isLimited) {
+                          _showRuntimePermissionDeniedDialog(Permission.contacts);
                           return null;
                         }
-                        try {
-                          final status = await Permission.contacts.request();
-                          if (!status.isGranted && !status.isLimited) {
-                            _showRuntimePermissionDeniedDialog(Permission.contacts);
-                            return null;
-                          }
 
-                          final contact = await FlutterContacts.openExternalPick();
-                          if (contact == null) return null;
+                        final contact = await FlutterContacts.openExternalPick();
+                        if (contact == null) return null;
 
-                          // Retrieve full details for selected contact safely
-                          final fullContact = await FlutterContacts.getContact(contact.id);
-                          final selected = fullContact ?? contact;
+                        final fullContact = await FlutterContacts.getContact(contact.id);
+                        final selected = fullContact ?? contact;
 
-                          final name = selected.displayName.trim();
-                          final phones = selected.phones.map((p) => p.number.replaceAll(RegExp(r'\s+'), '')).where((p) => p.isNotEmpty).toList();
-                          final emails = selected.emails.map((e) => e.address.trim()).where((e) => e.isNotEmpty).toList();
+                        final name = selected.displayName.trim();
+                        final phones = selected.phones
+                            .map((p) => p.number.replaceAll(RegExp(r'\s+'), ''))
+                            .where((p) => p.isNotEmpty)
+                            .toList();
+                        final emails = selected.emails
+                            .map((e) => e.address.trim())
+                            .where((e) => e.isNotEmpty)
+                            .toList();
 
-                          return {
-                            'displayName': name,
-                            'primaryPhone': phones.isNotEmpty ? phones.first : '',
-                            'phones': phones,
-                            'primaryEmail': emails.isNotEmpty ? emails.first : '',
-                            'emails': emails,
-                          };
-                        } catch (e) {
-                          AppLogger.e('Error picking contact', e);
-                          return null;
-                        }
-                      },
-                    );
+                        final primaryPhone = phones.isNotEmpty ? phones.first : '';
+                        final primaryEmail = emails.isNotEmpty ? emails.first : '';
+
+                        return {
+                          'displayName': name,
+                          'name': name,
+                          'primaryPhone': primaryPhone,
+                          'phone': primaryPhone,
+                          'phoneNumber': primaryPhone,
+                          'phones': phones,
+                          'primaryEmail': primaryEmail,
+                          'email': primaryEmail,
+                          'emails': emails,
+                        };
+                      } catch (e) {
+                        AppLogger.e('Error picking contact', e);
+                        return null;
+                      }
+                    }
+
+                    // Expose 'pickContact', 'getContacts', 'selectContact', 'chooseContact' handlers for web compatibility
+                    for (final handler in ['pickContact', 'getContacts', 'selectContact', 'chooseContact']) {
+                      controller.addJavaScriptHandler(
+                        handlerName: handler,
+                        callback: (args) => handleContactPickerCall(),
+                      );
+                    }
 
                     // Expose 'getRememberedEmail' handler for secure email restoration
                     controller.addJavaScriptHandler(
