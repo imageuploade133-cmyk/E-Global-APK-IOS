@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
@@ -47,8 +48,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Timer? _loadingTimeoutTimer;
 
   // Bleached Clean White constant color to eliminate black/white/colored layout flashes
-  static const int _maxFileSizeBytes = 25 * 1024 * 1024; // 25 MB max limit
-
   static const Color bleachWhite = Colors.white;
 
   bool _isInBackground = false;
@@ -276,6 +275,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
     if (permission == Permission.storage) return 'Storage Access';
     if (permission == Permission.photos) return 'Photo Library';
+    if (permission == Permission.contacts) return 'Contacts Access';
     if (permission == Permission.notification) return 'Real-time Alerts';
     return permission.toString();
   }
@@ -315,34 +315,83 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     );
   }
 
-  static const Set<String> _allowedFileExtensions = {
-    '.pdf',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.docx',
-    '.xlsx',
-    '.pptx',
-    '.txt',
-    '.csv',
-    '.zip',
-  };
 
-  String _sanitizeFileName(String rawName) {
+  String _sanitizeFileName(String rawName, [String? mimeType]) {
     var name = rawName.split('?').first.split('#').first;
     name = name.replaceAll(RegExp(r'[\\/:\*\?"<>\|]'), '_');
     name = name.replaceAll(RegExp(r'^\.+'), '');
-    if (name.trim().isEmpty) name = 'downloaded_receipt';
+    if (name.trim().isEmpty) name = 'downloaded_file';
 
-    // Verify file extension safety
-    final lower = name.toLowerCase();
-    final hasAllowedExt = _allowedFileExtensions.any(
-      (ext) => lower.endsWith(ext),
-    );
-    if (!hasAllowedExt) {
-      name = '$name.pdf';
+    if (!name.contains('.')) {
+      final ext = _getExtensionFromMimeType(mimeType);
+      if (ext.isNotEmpty) {
+        name = '$name$ext';
+      }
     }
     return name;
+  }
+
+  String _getExtensionFromMimeType(String? mimeType) {
+    if (mimeType == null || mimeType.isEmpty) return '';
+    final mime = mimeType.toLowerCase().split(';').first.trim();
+    switch (mime) {
+      case 'application/pdf':
+        return '.pdf';
+      case 'image/png':
+        return '.png';
+      case 'image/jpeg':
+      case 'image/jpg':
+        return '.jpg';
+      case 'image/webp':
+        return '.webp';
+      case 'text/csv':
+        return '.csv';
+      case 'text/plain':
+        return '.txt';
+      case 'application/json':
+        return '.json';
+      case 'application/zip':
+        return '.zip';
+      case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        return '.docx';
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        return '.xlsx';
+      case 'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+        return '.pptx';
+      default:
+        return '';
+    }
+  }
+
+  String? _parseContentDispositionFileName(String? contentDisposition) {
+    if (contentDisposition == null || contentDisposition.isEmpty) return null;
+    try {
+      // 1. Check for RFC 5987 style: filename*=UTF-8''encoded_name.ext or filename*=utf-8'lang'encoded_name.ext
+      final utf8Match = RegExp(
+        r'''filename\*\s*=\s*(?:utf-8|UTF-8)['"]*['"]*(?:[^'\n]*)['"]*['"]*([^;\n]+)''',
+        caseSensitive: false,
+      ).firstMatch(contentDisposition);
+      if (utf8Match != null) {
+        var rawMatch = utf8Match.group(1)?.trim() ?? '';
+        rawMatch = rawMatch.replaceAll(RegExp(r"^['']+|['']+$"), '');
+        if (rawMatch.isNotEmpty) {
+          return Uri.decodeComponent(rawMatch);
+        }
+      }
+
+      // 2. Check for standard style: filename="normal_name.ext" or filename=normal_name.ext
+      final stdMatch = RegExp(
+        r'''filename\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\n]+))''',
+        caseSensitive: false,
+      ).firstMatch(contentDisposition);
+      if (stdMatch != null) {
+        final rawMatch = stdMatch.group(1) ?? stdMatch.group(2) ?? stdMatch.group(3);
+        if (rawMatch != null && rawMatch.trim().isNotEmpty) {
+          return rawMatch.trim();
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> _handleDownload(
@@ -356,7 +405,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       final uri = Uri.parse(url);
       if (uri.scheme.toLowerCase() != 'https') {
-        AppLogger.e('Rejected insecure download URL: $url');
+        AppLogger.e('Rejected insecure download request (non-HTTPS)');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Insecure downloads are blocked.')),
@@ -369,7 +418,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final isTrustedGateway = AppStrings.isTrustedGatewayOrigin(uri);
 
       if (!isOfficialHost && !isTrustedGateway) {
-        AppLogger.e('Rejected download from untrusted host: ${uri.host}');
+        AppLogger.e('Rejected download request from untrusted origin host');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -380,25 +429,30 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         return;
       }
 
-      // Storage permission check omitted for internal app documents directory on modern SDKs (Android 10+ / iOS)
-      // to avoid unnecessary 'restricted' errors or OS denials.
-
-      final rawFileName = uri.pathSegments.isNotEmpty
-          ? uri.pathSegments.last
-          : 'receipt.pdf';
-      final fileName = _sanitizeFileName(rawFileName);
-
-      setState(() {
-        _isDownloading = true;
-        _downloadingFileName = fileName;
-        _downloadProgress = 0.1;
-      });
-
       final client = HttpClient();
       final request = await client.getUrl(uri);
       if (userAgent != null && userAgent.isNotEmpty) {
         request.headers.set('User-Agent', userAgent);
       }
+
+      // Forward WebView session cookies for authenticated downloads
+      if (_webViewController != null) {
+        try {
+          final cookieManager = CookieManager.instance();
+          final cookies = await cookieManager.getCookies(
+            url: WebUri(uri.toString()),
+          );
+          if (cookies.isNotEmpty) {
+            final cookieHeader = cookies
+                .map((c) => '${c.name}=${c.value}')
+                .join('; ');
+            request.headers.set('Cookie', cookieHeader);
+          }
+        } catch (e) {
+          AppLogger.e('Error forwarding cookies for download', e);
+        }
+      }
+
       final response = await request.close();
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -407,9 +461,32 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         );
       }
 
-      final dirPath = await _getDownloadDirectoryPath();
-      final filePath = '$dirPath/$fileName';
-      partialFile = File(filePath);
+      final cdFileName = _parseContentDispositionFileName(
+        response.headers.value('content-disposition') ?? contentDisposition,
+      );
+      final rawFileName = cdFileName ??
+          (uri.pathSegments.isNotEmpty
+              ? uri.pathSegments.last
+              : 'downloaded_file');
+      final effectiveMimeType =
+          response.headers.value('content-type') ?? mimeType;
+      final fileName = _sanitizeFileName(rawFileName, effectiveMimeType);
+
+      setState(() {
+        _isDownloading = true;
+        _downloadingFileName = fileName;
+        _downloadProgress = 0.1;
+      });
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException(
+          'HTTP Error ${response.statusCode} while downloading file.',
+        );
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final tempPath = '${tempDir.path}/temp_$fileName';
+      partialFile = File(tempPath);
 
       await partialFile.parent.create(recursive: true);
       final sink = partialFile.openWrite();
@@ -421,10 +498,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
       await for (final chunk in response) {
         received += chunk.length;
-        if (received > _maxFileSizeBytes) {
-          await sink.close();
-          throw Exception('Download size exceeds maximum 25MB limit.');
-        }
         sink.add(chunk);
         if (total > 0 && mounted) {
           setState(() {
@@ -435,6 +508,49 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       await sink.flush();
       await sink.close();
 
+      String targetOpenPath = tempPath;
+      String displaySavedName = fileName;
+
+      if (Platform.isAndroid) {
+        try {
+          const channel = MethodChannel('com.eglobal.wallet/mediastore');
+          final String? publicSavedPath = await channel.invokeMethod<String>(
+            'saveToDownloads',
+            {
+              'tempFilePath': tempPath,
+              'fileName': fileName,
+              'mimeType': effectiveMimeType ?? '*/*',
+            },
+          );
+          if (publicSavedPath != null && publicSavedPath.isNotEmpty) {
+            targetOpenPath = publicSavedPath;
+            displaySavedName = fileName;
+          }
+        } catch (e) {
+          AppLogger.e('MediaStore save failed, falling back to local file', e);
+        }
+      } else {
+        final dirPath = await _getDownloadDirectoryPath();
+        var filePath = '$dirPath/$fileName';
+        var fileCounter = 1;
+        final dotIdx = fileName.lastIndexOf('.');
+        final baseName = dotIdx != -1 ? fileName.substring(0, dotIdx) : fileName;
+        final extName = dotIdx != -1 ? fileName.substring(dotIdx) : '';
+
+        while (await File(filePath).exists()) {
+          filePath = '$dirPath/${baseName}_$fileCounter$extName';
+          fileCounter++;
+        }
+
+        final targetFile = File(filePath);
+        await partialFile.copy(targetFile.path);
+        try {
+          await partialFile.delete();
+        } catch (_) {}
+        targetOpenPath = targetFile.path;
+        displaySavedName = filePath.split('/').last;
+      }
+
       if (mounted) {
         setState(() {
           _isDownloading = false;
@@ -443,12 +559,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Downloaded: $fileName'),
+            content: Text('Downloaded: $displaySavedName'),
             action: SnackBarAction(
               label: 'Open',
               textColor: Colors.orange,
               onPressed: () async {
-                await OpenFilex.open(filePath);
+                await OpenFilex.open(targetOpenPath);
               },
             ),
           ),
@@ -479,8 +595,28 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<String> _getDownloadDirectoryPath() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/eglobal_downloads';
+    if (Platform.isAndroid) {
+      final publicDownloads = Directory('/storage/emulated/0/Download');
+      if (await publicDownloads.exists()) {
+        final path = '${publicDownloads.path}/E-Global Pay';
+        final dir = Directory(path);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return path;
+      }
+      final extDir = await getExternalStorageDirectory();
+      if (extDir != null) {
+        final path = '${extDir.path}/E-Global Pay';
+        final dir = Directory(path);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return path;
+      }
+    }
+    final appDocs = await getApplicationDocumentsDirectory();
+    final path = '${appDocs.path}/eglobal_downloads';
     final dir = Directory(path);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -512,9 +648,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           ? base64Data.split(',').last
           : base64Data;
 
-      // Validate base64 payload size prior to decoding to prevent OOM
-      if (cleanBase64.length > (_maxFileSizeBytes * 4 / 3)) {
-        AppLogger.e('Base64 share payload exceeds maximum allowed size (25MB)');
+      // Memory safety ceiling check prior to base64 decoding (max ~100MB string length = ~75MB binary)
+      const maxBase64Length = 100 * 1024 * 1024;
+      if (cleanBase64.length > maxBase64Length) {
+        AppLogger.e('Base64 share payload exceeds maximum memory safety threshold');
         return;
       }
 
@@ -579,14 +716,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       tempFile = File(tempPath);
 
       final sink = tempFile.openWrite();
-      int received = 0;
 
       await for (final chunk in response) {
-        received += chunk.length;
-        if (received > _maxFileSizeBytes) {
-          await sink.close();
-          throw Exception('Receipt file size exceeds maximum 25MB limit.');
-        }
         sink.add(chunk);
       }
       await sink.flush();
@@ -1086,6 +1217,65 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                               await _handleShare(text);
                             }
                           }
+                        }
+                      },
+                    );
+
+                    // Expose 'requestContactsPermission' handler for on-demand permission checking
+                    controller.addJavaScriptHandler(
+                      handlerName: 'requestContactsPermission',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected requestContactsPermission from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final status = await Permission.contacts.request();
+                        if (!status.isGranted && !status.isLimited) {
+                          _showRuntimePermissionDeniedDialog(Permission.contacts);
+                          return false;
+                        }
+                        return true;
+                      },
+                    );
+
+                    // Expose 'pickContact' handler for user contact selection
+                    controller.addJavaScriptHandler(
+                      handlerName: 'pickContact',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e('Rejected pickContact request from untrusted origin');
+                          return null;
+                        }
+                        try {
+                          final status = await Permission.contacts.request();
+                          if (!status.isGranted && !status.isLimited) {
+                            _showRuntimePermissionDeniedDialog(Permission.contacts);
+                            return null;
+                          }
+
+                          final contact = await FlutterContacts.openExternalPick();
+                          if (contact == null) return null;
+
+                          // Retrieve full details for selected contact safely
+                          final fullContact = await FlutterContacts.getContact(contact.id);
+                          final selected = fullContact ?? contact;
+
+                          final name = selected.displayName.trim();
+                          final phones = selected.phones.map((p) => p.number.replaceAll(RegExp(r'\s+'), '')).where((p) => p.isNotEmpty).toList();
+                          final emails = selected.emails.map((e) => e.address.trim()).where((e) => e.isNotEmpty).toList();
+
+                          return {
+                            'displayName': name,
+                            'primaryPhone': phones.isNotEmpty ? phones.first : '',
+                            'phones': phones,
+                            'primaryEmail': emails.isNotEmpty ? emails.first : '',
+                            'emails': emails,
+                          };
+                        } catch (e) {
+                          AppLogger.e('Error picking contact', e);
+                          return null;
                         }
                       },
                     );

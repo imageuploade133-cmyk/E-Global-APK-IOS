@@ -61,6 +61,12 @@
 		<string>This application requires location access to verify transactional locations and secure your wallet account.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>This application requires access to your photo library to pick images for profile pictures and document uploading.</string>
+		<key>NSContactsUsageDescription</key>
+		<string>This application requires access to your contacts to allow selecting beneficiaries for airtime, data, and money transfers.</string>
+		<key>LSSupportsOpeningDocumentsInPlace</key>
+		<true/>
+		<key>UIFileSharingEnabled</key>
+		<true/>
 		<key>NSFaceIDUsageDescription</key>
 		<string>This application requires Face ID access for authenticating your secure sessions.</string>
 		<key>UISupportedInterfaceOrientations</key>
