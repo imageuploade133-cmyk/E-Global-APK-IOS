@@ -276,6 +276,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
     if (permission == Permission.storage) return 'Storage Access';
     if (permission == Permission.photos) return 'Photo Library';
+    if (permission == Permission.contacts) return 'Contacts Access';
     if (permission == Permission.notification) return 'Real-time Alerts';
     return permission.toString();
   }
@@ -408,7 +409,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       }
 
       final dirPath = await _getDownloadDirectoryPath();
-      final filePath = '$dirPath/$fileName';
+      var filePath = '$dirPath/$fileName';
+
+      // Prevent accidental overwrite of existing files with duplicate names
+      var fileCounter = 1;
+      final dotIdx = fileName.lastIndexOf('.');
+      final baseName = dotIdx != -1 ? fileName.substring(0, dotIdx) : fileName;
+      final extName = dotIdx != -1 ? fileName.substring(dotIdx) : '';
+
+      while (await File(filePath).exists()) {
+        filePath = '$dirPath/${baseName}_$fileCounter$extName';
+        fileCounter++;
+      }
+
+      final finalFileName = filePath.split('/').last;
       partialFile = File(filePath);
 
       await partialFile.parent.create(recursive: true);
@@ -443,7 +457,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Downloaded: $fileName'),
+            content: Text('Downloaded: $finalFileName'),
             action: SnackBarAction(
               label: 'Open',
               textColor: Colors.orange,
@@ -1087,6 +1101,25 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             }
                           }
                         }
+                      },
+                    );
+
+                    // Expose 'requestContactsPermission' handler for on-demand permission checking
+                    controller.addJavaScriptHandler(
+                      handlerName: 'requestContactsPermission',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected requestContactsPermission from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final status = await Permission.contacts.request();
+                        if (!status.isGranted && !status.isLimited) {
+                          _showRuntimePermissionDeniedDialog(Permission.contacts);
+                          return false;
+                        }
+                        return true;
                       },
                     );
 
