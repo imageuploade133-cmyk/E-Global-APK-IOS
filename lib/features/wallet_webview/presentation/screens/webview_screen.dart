@@ -37,6 +37,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _isOnline = true;
   String? _pendingRedirectPath;
   String _currentUrl = AppStrings.baseUrl;
+  String _lastSuccessfulUrl = AppStrings.baseUrl;
+  String? _offlineNavigationOriginUrl;
+  bool _offlineNavigationInProgress = false;
+  bool _offlineNavigationRestoring = false;
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -198,10 +202,25 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _loadingTimeoutTimer?.cancel();
   }
 
+  Future<void> _triggerNativeHaptic() async {
+    try {
+      await const MethodChannel('com.eglobal.wallet/haptics').invokeMethod<void>(
+        'vibrate',
+      );
+    } catch (_) {
+      // Keep the Flutter haptic fallback for platforms where the native channel
+      // is unavailable.
+      try {
+        await HapticFeedback.mediumImpact();
+        await HapticFeedback.vibrate();
+      } catch (_) {}
+    }
+  }
+
   Future<void> _checkConnectionAndReload() async {
-    // Immediate haptic feedback on user button press across iOS & Android system settings
-    HapticFeedback.lightImpact();
-    HapticFeedback.vibrate();
+
+    // Native haptic first, with Flutter fallback.
+    await _triggerNativeHaptic();
 
     final recoveryAttemptId = ++_loadAttemptId;
     _recoveryAttemptId = recoveryAttemptId;
@@ -254,7 +273,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           ? CacheMode.LOAD_DEFAULT
           : CacheMode.LOAD_CACHE_ELSE_NETWORK;
       await _webViewController!.setSettings(
-        settings: InAppWebViewSettings(cacheMode: cacheMode),
+        settings: InAppWebViewSettings(
+          cacheMode: cacheMode,
+          networkAvailable: isConnected,
+        ),
       );
     }
   }
@@ -801,6 +823,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     );
 
     if (shouldExit ?? false) {
+      await _triggerNativeHaptic();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
       SystemNavigator.pop();
     }
   }
@@ -1009,6 +1033,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
                     // Robust 100% offline support cache configuration
                     cacheMode: _getCurrentCacheMode(),
+                    networkAvailable: _isOnline,
                     // Remove all window/viewport margins, backgrounds, and styling issues
                     transparentBackground: true,
                     // Enable high fidelity viewport dynamic scaling for smaller devices
@@ -1030,6 +1055,30 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final scheme = uri.scheme.toLowerCase();
                     final urlString = uri.toString();
                     final path = uri.path.toLowerCase();
+
+                    // Offline navigation policy:
+                    // - Previously opened/cached pages may still load from WebView cache.
+                    // - A new page is attempted under the existing full-screen overlay.
+                    // - If it cannot load, the WebView returns to the last successfully
+                    //   rendered page instead of exposing the failed URL or Chromium error page.
+                    if (!_isOnline &&
+                        navigationAction.isForMainFrame == true &&
+                        (scheme == 'http' || scheme == 'https')) {
+                      final targetUrl = uri.toString();
+                      final previousUrl = _lastSuccessfulUrl;
+                      if (targetUrl != previousUrl) {
+                        _offlineNavigationOriginUrl = previousUrl;
+                        _offlineNavigationInProgress = true;
+                        _offlineNavigationRestoring = false;
+                        if (mounted) {
+                          setState(() {
+                            _hasLoadError = true;
+                            _isCrashing = false;
+                            _isUserRetrying = false;
+                          });
+                        }
+                      }
+                    }
 
                     // In offline mode, strictly block new server-changing or sensitive operations
                     if (!_isOnline) {
@@ -1494,7 +1543,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _recoveryCompleted = false;
                     }
 
-                    if (url != null) {
+                    // Keep the last successfully rendered URL authoritative while
+                    // a new/offline navigation is still unverified.
+                    if (url != null && !_offlineNavigationInProgress) {
                       _currentUrl = url.toString();
                     }
                     _startLoadingTimer();
@@ -1535,6 +1586,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         if (isValidRecovery) {
                           _recoveryCompleted = true;
                           _recoveryAttemptId = null;
+                          _offlineNavigationInProgress = false;
+                          _offlineNavigationRestoring = false;
+                          if (url != null) {
+                            _currentUrl = url.toString();
+                            _lastSuccessfulUrl = url.toString();
+                          }
                           setState(() {
                             _isOnline = true;
                             _hasLoadError = false;
@@ -1554,6 +1611,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _hasLoadError = true;
                         });
                       } else {
+                        if (url != null) {
+                          _currentUrl = url.toString();
+                          _lastSuccessfulUrl = url.toString();
+                        }
+                        _offlineNavigationInProgress = false;
+                        _offlineNavigationRestoring = false;
                         setState(() {
                           _isOnline = isConnected;
                         });
@@ -1572,6 +1635,36 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
+                      // A new offline page must never replace the last usable page.
+                      // Keep the overlay covering the WebView while returning to cache/history.
+                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
+                        _offlineNavigationRestoring = true;
+                        _offlineNavigationInProgress = false;
+                        _stopLoadingTimer();
+                        final previousUrl = _offlineNavigationOriginUrl;
+                        if (previousUrl != null) {
+                          try {
+                            if (await controller.canGoBack()) {
+                              await controller.goBack();
+                              return;
+                            }
+                            await controller.loadUrl(
+                              urlRequest: URLRequest(url: WebUri(previousUrl)),
+                            );
+                            return;
+                          } catch (e) {
+                            AppLogger.e('Failed to restore cached page after offline navigation', e);
+                          }
+                        }
+                        if (mounted) {
+                          setState(() {
+                            _hasLoadError = true;
+                            _isUserRetrying = false;
+                          });
+                        }
+                        return;
+                      }
+
                       // Keep the recovery overlay mounted; timeout decides recovery failure.
                       if (_isUserRetrying) return;
                       if (!_mainFrameLoading) return;
@@ -1610,6 +1703,34 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
+                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
+                        _offlineNavigationRestoring = true;
+                        _offlineNavigationInProgress = false;
+                        _stopLoadingTimer();
+                        final previousUrl = _offlineNavigationOriginUrl;
+                        if (previousUrl != null) {
+                          try {
+                            if (await controller.canGoBack()) {
+                              await controller.goBack();
+                              return;
+                            }
+                            await controller.loadUrl(
+                              urlRequest: URLRequest(url: WebUri(previousUrl)),
+                            );
+                            return;
+                          } catch (e) {
+                            AppLogger.e('Failed to restore cached page after offline HTTP error', e);
+                          }
+                        }
+                        if (mounted) {
+                          setState(() {
+                            _hasLoadError = true;
+                            _isUserRetrying = false;
+                          });
+                        }
+                        return;
+                      }
+
                       if (_isUserRetrying) return;
                       if (!_mainFrameLoading) return;
 
