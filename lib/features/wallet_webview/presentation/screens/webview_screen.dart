@@ -41,6 +41,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _offlineNavigationOriginUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
+  bool _navigationGuardVisible = false;
+  final Set<String> _successfullyLoadedUrls = <String>{AppStrings.baseUrl};
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -231,6 +233,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       setState(() {
         _isUserRetrying = true;
         _hasLoadError = true;
+        _navigationGuardVisible = true;
         // Keep the overlay mounted over the SAME WebView for the entire recovery attempt.
       });
     }
@@ -1056,20 +1059,34 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final urlString = uri.toString();
                     final path = uri.path.toLowerCase();
 
-                    // Offline navigation policy:
-                    // - Previously opened/cached pages may still load from WebView cache.
-                    // - A new page is attempted under the existing full-screen overlay.
-                    // - If it cannot load, the WebView returns to the last successfully
-                    //   rendered page instead of exposing the failed URL or Chromium error page.
-                    if (!_isOnline &&
-                        navigationAction.isForMainFrame == true &&
+                    // Verify connectivity at the exact moment a main-frame
+                    // navigation is requested. Connectivity callbacks can lag behind
+                    // a real network drop.
+                    if (navigationAction.isForMainFrame == true &&
                         (scheme == 'http' || scheme == 'https')) {
-                      final targetUrl = uri.toString();
-                      final previousUrl = _lastSuccessfulUrl;
-                      if (targetUrl != previousUrl) {
-                        _offlineNavigationOriginUrl = previousUrl;
-                        _offlineNavigationInProgress = true;
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnectedNow = await connectivity.isConnected;
+                      if (mounted && _isOnline != isConnectedNow) {
+                        setState(() => _isOnline = isConnectedNow);
+                      }
+
+                      final normalizedTarget = uri.toString();
+                      final isPreviouslyLoaded =
+                          _successfullyLoadedUrls.contains(normalizedTarget);
+                      final isHistoryNavigation =
+                          navigationAction.navigationType ==
+                          NavigationType.BACK_FORWARD;
+
+                      if (!isConnectedNow &&
+                          !isPreviouslyLoaded &&
+                          !isHistoryNavigation) {
+                        // Do not start the navigation at all. This is the key
+                        // guarantee that an offline destination can never expose
+                        // Chromium's "Web page not available" URL/error page.
+                        _offlineNavigationOriginUrl = _lastSuccessfulUrl;
+                        _offlineNavigationInProgress = false;
                         _offlineNavigationRestoring = false;
+                        _stopLoadingTimer();
                         if (mounted) {
                           setState(() {
                             _hasLoadError = true;
@@ -1077,6 +1094,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _isUserRetrying = false;
                           });
                         }
+                        return NavigationActionPolicy.CANCEL;
+                      }
+
+                      // For a page that was previously loaded (or browser history
+                      // navigation), keep the WebView behind an opaque guard until
+                      // onLoadStop proves the destination rendered successfully.
+                      if (isPreviouslyLoaded || isHistoryNavigation) {
+                        _navigationGuardVisible = true;
+                        if (mounted) {
+                          setState(() {});
+                        }
+                        // Give Flutter one frame to paint the guard before allowing
+                        // WebView navigation, preventing URL/error-page flashes.
+                        await Future<void>.delayed(const Duration(milliseconds: 16));
                       }
                     }
 
@@ -1571,6 +1602,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         (AppStrings.isTrustedWalletOrigin(url) ||
                          AppStrings.isTrustedGatewayOrigin(url));
 
+                    if (!isErrorUrl && isTrustedUrl && url != null) {
+                      final loadedUrl = url.toString();
+                      _successfullyLoadedUrls.add(loadedUrl);
+                      _lastSuccessfulUrl = loadedUrl;
+                    }
+                    _navigationGuardVisible = false;
+
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
@@ -1674,7 +1712,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           }
                         }
                         if (mounted) {
-                          setState(() {
+                          _navigationGuardVisible = false;
+                        setState(() {
                             _hasLoadError = true;
                             _isUserRetrying = false;
                           });
@@ -1933,6 +1972,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 ),
               ),
               ),
+              if (_navigationGuardVisible &&
+                  !_hasLoadError &&
+                  !_isCrashing)
+                const Positioned.fill(
+                  child: ColoredBox(color: Colors.white),
+                ),
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
                   child: !_isOnline
