@@ -263,6 +263,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _startLoadingTimer();
     final controller = _webViewController;
     if (controller != null && _recoveryAttemptId == recoveryAttemptId) {
+      // Explicit Retry is the controlled update path. Temporarily prefer the
+      // network so a newer deployed web app can be picked up, then restore
+      // cache-first mode after the successful navigation.
+      await controller.setSettings(
+        settings: InAppWebViewSettings(
+          cacheMode: CacheMode.LOAD_DEFAULT,
+          networkAvailable: true,
+        ),
+      );
       await controller.loadUrl(
         urlRequest: URLRequest(url: WebUri(_currentUrl)),
       );
@@ -271,13 +280,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<void> _handleConnectivityChange(bool isConnected) async {
+    // Connectivity changes must not trigger an automatic network reload.
+    // Keep the WebView cache-first so the page already on screen is stable.
+    // A fresh network load is only requested by an explicit retry/navigation.
     if (_webViewController != null) {
-      final cacheMode = isConnected
-          ? CacheMode.LOAD_DEFAULT
-          : CacheMode.LOAD_CACHE_ELSE_NETWORK;
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(
-          cacheMode: cacheMode,
+          cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
           networkAvailable: isConnected,
         ),
       );
@@ -285,9 +294,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   CacheMode _getCurrentCacheMode() {
-    return _isOnline
-        ? CacheMode.LOAD_DEFAULT
-        : CacheMode.LOAD_CACHE_ELSE_NETWORK;
+    // Cache-first in both online and offline states:
+    // - previously cached pages/resources can render immediately;
+    // - uncached destinations use the network when available;
+    // - coming online never forces an instant replacement of the page in view.
+    return CacheMode.LOAD_CACHE_ELSE_NETWORK;
   }
 
   void _showRuntimePermissionDeniedDialog(Permission permission) {
@@ -1035,6 +1046,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     scrollbarFadingEnabled: false,
                     scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
                     // Robust 100% offline support cache configuration
+                    // Cache-first startup/navigation prevents an online
+                    // reconnect from immediately replacing the page the user is
+                    // currently viewing. Uncached pages still use the network.
                     cacheMode: _getCurrentCacheMode(),
                     networkAvailable: _isOnline,
                     // Remove all window/viewport margins, backgrounds, and styling issues
@@ -1653,6 +1667,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _isCrashing = false;
                             _isUserRetrying = false;
                           });
+                          // Return to cache-first behavior after an explicit
+                          // network refresh succeeds.
+                          await controller.setSettings(
+                            settings: InAppWebViewSettings(
+                              cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+                              networkAvailable: true,
+                            ),
+                          );
                         } else {
                           setState(() {
                             _isOnline = isConnected;
