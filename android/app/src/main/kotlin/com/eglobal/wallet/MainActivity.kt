@@ -14,9 +14,34 @@ import java.io.OutputStream
 
 class MainActivity: FlutterFragmentActivity() {
     private val CHANNEL = "com.eglobal.wallet/mediastore"
+    private val HAPTICS_CHANNEL = "com.eglobal.wallet/haptics"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HAPTICS_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "vibrate") {
+                try {
+                    val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        vibrator.vibrate(
+                            android.os.VibrationEffect.createOneShot(
+                                45L,
+                                android.os.VibrationEffect.DEFAULT_AMPLITUDE
+                            )
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(45L)
+                    }
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("HAPTIC_FAILED", e.localizedMessage, null)
+                }
+            } else {
+                result.notImplemented()
+            }
+        }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "saveToDownloads") {
                 val tempFilePath = call.argument<String>("tempFilePath")
