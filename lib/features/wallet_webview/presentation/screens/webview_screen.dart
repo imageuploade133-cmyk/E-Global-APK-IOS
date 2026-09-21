@@ -868,6 +868,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               var style = document.createElement('style');
               style.id = 'eglobal-hide-scrollbars';
               style.innerHTML = `
+                *::-webkit-scrollbar,
                 ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
                 * {
                   scrollbar-width: none !important;
@@ -1002,10 +1003,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                               -ms-overflow-style: none !important;
                               -webkit-touch-callout: none !important;
                             }
+                            *::-webkit-scrollbar,
                             ::-webkit-scrollbar {
                               display: none !important;
-                              width: 0px !important;
-                              height: 0px !important;
+                              width: 0 !important;
+                              height: 0 !important;
                               background: transparent !important;
                             }
                             ::-webkit-scrollbar-thumb {
@@ -1041,10 +1043,22 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     // Enforce HTTPS-only content security and disallow mixed HTTP content
                     mixedContentMode:
                         MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
+                    // Native scrollbar suppression: keep indicators hidden even during active drag.
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
                     scrollbarFadingEnabled: false,
                     scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
+                    scrollBarDefaultDelayBeforeFade: 0,
+                    scrollBarFadeDuration: 0,
+                    verticalScrollbarThumbColor: Colors.transparent,
+                    verticalScrollbarTrackColor: Colors.transparent,
+                    horizontalScrollbarThumbColor: Colors.transparent,
+                    horizontalScrollbarTrackColor: Colors.transparent,
+                    // Remove Android edge overscroll effects so normal scrolling feels lighter.
+                    disallowOverScroll: true,
+                    overScrollMode: OverScrollMode.NEVER,
+                    // Keep native WebView hardware acceleration explicitly enabled.
+                    hardwareAcceleration: true,
                     // Robust 100% offline support cache configuration
                     // Cache-first startup/navigation prevents an online
                     // reconnect from immediately replacing the page the user is
