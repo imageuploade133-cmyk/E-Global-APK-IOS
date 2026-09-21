@@ -1574,6 +1574,23 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
+                    if (mounted &&
+                        _offlineNavigationInProgress &&
+                        !_offlineNavigationRestoring &&
+                        !isErrorUrl &&
+                        isTrustedUrl) {
+                      _offlineNavigationInProgress = false;
+                      _offlineNavigationOriginUrl = null;
+                      _currentUrl = url.toString();
+                      _lastSuccessfulUrl = url.toString();
+                      setState(() {
+                        _isOnline = false;
+                        _hasLoadError = false;
+                        _isCrashing = false;
+                        _isUserRetrying = false;
+                      });
+                    }
+
                     if (mounted) {
                       final isValidRecovery = completedRecoveryId != null &&
                           completedRecoveryId == completedAttemptId &&
