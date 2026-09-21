@@ -41,6 +41,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _offlineNavigationOriginUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
+  bool _navigationGuardVisible = false;
+  final Set<String> _successfullyLoadedUrls = <String>{AppStrings.baseUrl};
 
   double _downloadProgress = 0.0;
   String _downloadingFileName = '';
@@ -231,6 +233,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       setState(() {
         _isUserRetrying = true;
         _hasLoadError = true;
+        _navigationGuardVisible = true;
         // Keep the overlay mounted over the SAME WebView for the entire recovery attempt.
       });
     }
@@ -260,6 +263,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _startLoadingTimer();
     final controller = _webViewController;
     if (controller != null && _recoveryAttemptId == recoveryAttemptId) {
+      // Explicit Retry is the controlled update path. Temporarily prefer the
+      // network so a newer deployed web app can be picked up, then restore
+      // cache-first mode after the successful navigation.
+      await controller.setSettings(
+        settings: InAppWebViewSettings(
+          cacheMode: CacheMode.LOAD_DEFAULT,
+          networkAvailable: true,
+        ),
+      );
       await controller.loadUrl(
         urlRequest: URLRequest(url: WebUri(_currentUrl)),
       );
@@ -268,13 +280,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<void> _handleConnectivityChange(bool isConnected) async {
+    // Connectivity changes must not trigger an automatic network reload.
+    // Keep the WebView cache-first so the page already on screen is stable.
+    // A fresh network load is only requested by an explicit retry/navigation.
     if (_webViewController != null) {
-      final cacheMode = isConnected
-          ? CacheMode.LOAD_DEFAULT
-          : CacheMode.LOAD_CACHE_ELSE_NETWORK;
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(
-          cacheMode: cacheMode,
+          cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
           networkAvailable: isConnected,
         ),
       );
@@ -282,9 +294,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   CacheMode _getCurrentCacheMode() {
-    return _isOnline
-        ? CacheMode.LOAD_DEFAULT
-        : CacheMode.LOAD_CACHE_ELSE_NETWORK;
+    // Cache-first in both online and offline states:
+    // - previously cached pages/resources can render immediately;
+    // - uncached destinations use the network when available;
+    // - coming online never forces an instant replacement of the page in view.
+    return CacheMode.LOAD_CACHE_ELSE_NETWORK;
   }
 
   void _showRuntimePermissionDeniedDialog(Permission permission) {
@@ -1032,6 +1046,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     scrollbarFadingEnabled: false,
                     scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
                     // Robust 100% offline support cache configuration
+                    // Cache-first startup/navigation prevents an online
+                    // reconnect from immediately replacing the page the user is
+                    // currently viewing. Uncached pages still use the network.
                     cacheMode: _getCurrentCacheMode(),
                     networkAvailable: _isOnline,
                     // Remove all window/viewport margins, backgrounds, and styling issues
@@ -1056,20 +1073,34 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final urlString = uri.toString();
                     final path = uri.path.toLowerCase();
 
-                    // Offline navigation policy:
-                    // - Previously opened/cached pages may still load from WebView cache.
-                    // - A new page is attempted under the existing full-screen overlay.
-                    // - If it cannot load, the WebView returns to the last successfully
-                    //   rendered page instead of exposing the failed URL or Chromium error page.
-                    if (!_isOnline &&
-                        navigationAction.isForMainFrame == true &&
+                    // Verify connectivity at the exact moment a main-frame
+                    // navigation is requested. Connectivity callbacks can lag behind
+                    // a real network drop.
+                    if (navigationAction.isForMainFrame == true &&
                         (scheme == 'http' || scheme == 'https')) {
-                      final targetUrl = uri.toString();
-                      final previousUrl = _lastSuccessfulUrl;
-                      if (targetUrl != previousUrl) {
-                        _offlineNavigationOriginUrl = previousUrl;
-                        _offlineNavigationInProgress = true;
+                      final connectivity = ref.read(connectivityServiceProvider);
+                      final isConnectedNow = await connectivity.isConnected;
+                      if (mounted && _isOnline != isConnectedNow) {
+                        setState(() => _isOnline = isConnectedNow);
+                      }
+
+                      final normalizedTarget = uri.toString();
+                      final isPreviouslyLoaded =
+                          _successfullyLoadedUrls.contains(normalizedTarget);
+                      final isHistoryNavigation =
+                          navigationAction.navigationType ==
+                          NavigationType.BACK_FORWARD;
+
+                      if (!isConnectedNow &&
+                          !isPreviouslyLoaded &&
+                          !isHistoryNavigation) {
+                        // Do not start the navigation at all. This is the key
+                        // guarantee that an offline destination can never expose
+                        // Chromium's "Web page not available" URL/error page.
+                        _offlineNavigationOriginUrl = _lastSuccessfulUrl;
+                        _offlineNavigationInProgress = false;
                         _offlineNavigationRestoring = false;
+                        _stopLoadingTimer();
                         if (mounted) {
                           setState(() {
                             _hasLoadError = true;
@@ -1077,6 +1108,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _isUserRetrying = false;
                           });
                         }
+                        return NavigationActionPolicy.CANCEL;
+                      }
+
+                      // For a page that was previously loaded (or browser history
+                      // navigation), keep the WebView behind an opaque guard until
+                      // onLoadStop proves the destination rendered successfully.
+                      if (isPreviouslyLoaded || isHistoryNavigation) {
+                        _navigationGuardVisible = true;
+                        if (mounted) {
+                          setState(() {});
+                        }
+                        // Give Flutter one frame to paint the guard before allowing
+                        // WebView navigation, preventing URL/error-page flashes.
+                        await Future<void>.delayed(const Duration(milliseconds: 16));
                       }
                     }
 
@@ -1571,6 +1616,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         (AppStrings.isTrustedWalletOrigin(url) ||
                          AppStrings.isTrustedGatewayOrigin(url));
 
+                    if (!isErrorUrl && isTrustedUrl && url != null) {
+                      final loadedUrl = url.toString();
+                      _successfullyLoadedUrls.add(loadedUrl);
+                      _lastSuccessfulUrl = loadedUrl;
+                    }
+                    _navigationGuardVisible = false;
+
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
 
@@ -1615,6 +1667,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _isCrashing = false;
                             _isUserRetrying = false;
                           });
+                          // Return to cache-first behavior after an explicit
+                          // network refresh succeeds.
+                          await controller.setSettings(
+                            settings: InAppWebViewSettings(
+                              cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+                              networkAvailable: true,
+                            ),
+                          );
                         } else {
                           setState(() {
                             _isOnline = isConnected;
@@ -1674,7 +1734,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           }
                         }
                         if (mounted) {
-                          setState(() {
+                          _navigationGuardVisible = false;
+                        setState(() {
                             _hasLoadError = true;
                             _isUserRetrying = false;
                           });
@@ -1933,6 +1994,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 ),
               ),
               ),
+              if (_navigationGuardVisible &&
+                  !_hasLoadError &&
+                  !_isCrashing)
+                const Positioned.fill(
+                  child: ColoredBox(color: Colors.white),
+                ),
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
                   child: !_isOnline
