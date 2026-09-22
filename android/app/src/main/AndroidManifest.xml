@@ -21,8 +21,7 @@
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:fullBackupContent="false"
-        android:usesCleartextTraffic="false"
-        android:importantForAutofill="noExcludeDescendants">
+        android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
