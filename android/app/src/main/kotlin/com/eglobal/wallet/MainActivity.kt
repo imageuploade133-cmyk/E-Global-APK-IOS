@@ -13,6 +13,14 @@ import java.io.FileInputStream
 import java.io.OutputStream
 
 class MainActivity: FlutterFragmentActivity() {
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Disable Android Autofill for the entire app view hierarchy.
+            window.decorView.importantForAutofill =
+                android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
+
     private val CHANNEL = "com.eglobal.wallet/mediastore"
     private val HAPTICS_CHANNEL = "com.eglobal.wallet/haptics"
 
