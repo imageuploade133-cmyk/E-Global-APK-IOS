@@ -20,6 +20,7 @@ class MainActivity: FlutterFragmentActivity() {
             window.decorView.importantForAutofill =
                 android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         }
+    }
 
     private val CHANNEL = "com.eglobal.wallet/mediastore"
     private val HAPTICS_CHANNEL = "com.eglobal.wallet/haptics"
