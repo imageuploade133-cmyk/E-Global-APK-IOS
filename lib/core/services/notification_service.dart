@@ -33,7 +33,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
           channelDescription: 'Secure notifications from E-Global Pay',
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
           channelShowBadge: true,
           enableVibration: true,
           playSound: true,
@@ -172,7 +172,7 @@ class NotificationService {
       AppLogger.i('Notification permission status: ${settings.authorizationStatus}');
 
       // Initialize local notifications
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidSettings = AndroidInitializationSettings('@drawable/ic_notification');
       const iosSettings = DarwinInitializationSettings(
         requestAlertPermission: true,
         requestBadgePermission: true,
@@ -379,7 +379,7 @@ class NotificationService {
           channelDescription: 'Secure notifications from E-Global Pay',
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
           channelShowBadge: true,
           enableVibration: true,
           playSound: true,
