@@ -41,7 +41,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _offlineNavigationOriginUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
-  bool _navigationGuardVisible = false;
+  bool _navigationGuardVisible = true;
+  bool _webViewReady = false;
+  int _mainFrameProgress = 0;
   final Set<String> _successfullyLoadedUrls = <String>{AppStrings.baseUrl};
 
   double _downloadProgress = 0.0;
@@ -92,12 +94,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     WidgetsBinding.instance.addObserver(this);
     _initConnectivity();
     _initPushNotifications();
-    // Guarantee startup native splash removal regardless of network condition or WebView callback delays
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        _restoreSystemUi();
-      }
-    });
+    // Keep the native splash/opaque startup guard visible until the WebView has
+    // fully rendered a trusted page or a terminal error/offline UI is ready.
   }
 
   @override
@@ -1596,6 +1594,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
                     _mainFrameLoading = true;
+                    _mainFrameProgress = 0;
+                    _webViewReady = false;
+                    _navigationGuardVisible = true;
                     _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
@@ -1630,12 +1631,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         (AppStrings.isTrustedWalletOrigin(url) ||
                          AppStrings.isTrustedGatewayOrigin(url));
 
-                    if (!isErrorUrl && isTrustedUrl && url != null) {
+                    final fullyLoadedTrustedPage =
+                        !isErrorUrl && isTrustedUrl && url != null;
+
+                    if (fullyLoadedTrustedPage) {
                       final loadedUrl = url.toString();
                       _successfullyLoadedUrls.add(loadedUrl);
                       _lastSuccessfulUrl = loadedUrl;
+                      _mainFrameProgress = 100;
+                      _webViewReady = true;
+                      _navigationGuardVisible = false;
+                    } else {
+                      _webViewReady = false;
+                      _navigationGuardVisible = true;
                     }
-                    _navigationGuardVisible = false;
 
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
@@ -1714,18 +1723,33 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       }
                     }
 
-                    _restoreSystemUi();
+                    if (_webViewReady) {
+                      _restoreSystemUi();
+                    }
                     await _injectSecurityAndAutofillScripts(controller);
                     await _injectRememberEmailScript(controller);
                   },
                   onProgressChanged: (controller, progress) {
+                    _mainFrameProgress = progress.clamp(0, 100);
                     webViewNotifier.setProgress(progress / 100);
+                    if (progress < 100 && mounted) {
+                      if (_webViewReady || !_navigationGuardVisible) {
+                        setState(() {
+                          _webViewReady = false;
+                          _navigationGuardVisible = true;
+                        });
+                      }
+                    }
                   },
                   onReceivedError: (controller, request, error) async {
                     AppLogger.e(
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
+                      _webViewReady = false;
+                      _navigationGuardVisible = false;
+                      _restoreSystemUi();
+
                       // A new offline page must never replace the last usable page.
                       // Keep the overlay covering the WebView while returning to cache/history.
                       if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
@@ -1766,7 +1790,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final requestUrl = request.url?.toString();
 
                       _stopLoadingTimer();
-                      _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
 
@@ -1795,6 +1818,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
+                      _webViewReady = false;
+                      _navigationGuardVisible = false;
+                      _restoreSystemUi();
                       if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
                         _offlineNavigationRestoring = true;
                         _offlineNavigationInProgress = false;
