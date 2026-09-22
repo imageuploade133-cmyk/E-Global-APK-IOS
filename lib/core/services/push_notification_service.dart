@@ -238,7 +238,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   Future<void> _initializeLocalNotifications() async {
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@drawable/ic_notification');
 
     const DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
@@ -304,7 +304,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
                   'This channel is used for important wallet updates.',
               importance: Importance.max,
               priority: Priority.high,
-              icon: android?.smallIcon ?? '@mipmap/ic_launcher',
+              icon: android?.smallIcon ?? '@drawable/ic_notification',
               playSound: true,
             ),
             iOS: const DarwinNotificationDetails(
