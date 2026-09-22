@@ -45,12 +45,48 @@ android {
 
     signingConfigs {
         create("release") {
-            val keyAliasProp = keystoreProperties.getProperty("keyAlias") ?: System.getenv("KEY_ALIAS")
-            val keyPasswordProp = keystoreProperties.getProperty("keyPassword") ?: System.getenv("KEY_PASSWORD")
-            val storeFileProp = keystoreProperties.getProperty("storeFile") ?: System.getenv("STORE_FILE")
-            val storePasswordProp = keystoreProperties.getProperty("storePassword") ?: System.getenv("STORE_PASSWORD")
+            // Appcircle exposes the selected Android keystore through reserved
+            // AC_ANDROID_* environment variables. Keep local key.properties/
+            // KEY_* support for local development and other CI environments.
+            val appcircleKeystorePath = System.getenv("AC_ANDROID_KEYSTORE_PATH")
+            val appcircleKeystorePassword = System.getenv("AC_ANDROID_KEYSTORE_PASSWORD")
+            val appcircleAlias = System.getenv("AC_ANDROID_ALIAS")
+            val appcircleAliasPassword = System.getenv("AC_ANDROID_ALIAS_PASSWORD")
 
-            if (keyAliasProp != null && keyPasswordProp != null && storeFileProp != null && storePasswordProp != null) {
+            val useAppcircleSigning =
+                System.getenv("AC_APPCIRCLE").toBoolean() &&
+                !appcircleKeystorePath.isNullOrBlank() &&
+                !appcircleKeystorePassword.isNullOrBlank() &&
+                !appcircleAlias.isNullOrBlank() &&
+                !appcircleAliasPassword.isNullOrBlank()
+
+            val keyAliasProp = if (useAppcircleSigning) {
+                appcircleAlias
+            } else {
+                keystoreProperties.getProperty("keyAlias") ?: System.getenv("KEY_ALIAS")
+            }
+            val keyPasswordProp = if (useAppcircleSigning) {
+                appcircleAliasPassword
+            } else {
+                keystoreProperties.getProperty("keyPassword") ?: System.getenv("KEY_PASSWORD")
+            }
+            val storeFileProp = if (useAppcircleSigning) {
+                appcircleKeystorePath
+            } else {
+                keystoreProperties.getProperty("storeFile") ?: System.getenv("STORE_FILE")
+            }
+            val storePasswordProp = if (useAppcircleSigning) {
+                appcircleKeystorePassword
+            } else {
+                keystoreProperties.getProperty("storePassword") ?: System.getenv("STORE_PASSWORD")
+            }
+
+            if (
+                !keyAliasProp.isNullOrBlank() &&
+                !keyPasswordProp.isNullOrBlank() &&
+                !storeFileProp.isNullOrBlank() &&
+                !storePasswordProp.isNullOrBlank()
+            ) {
                 keyAlias = keyAliasProp
                 keyPassword = keyPasswordProp
                 storeFile = file(storeFileProp)
@@ -74,8 +110,8 @@ android {
                 val isReleaseTask = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
                 if (isReleaseTask) {
                     throw GradleException(
-                        "Release build failed: Missing key.properties or valid release keystore file. " +
-                        "Release builds must be signed with a valid production keystore."
+                        "Release build failed: Missing key.properties or valid Appcircle/local release keystore. " +
+                        "Select a valid Android keystore in Appcircle or configure key.properties for local builds."
                     )
                 }
             }
