@@ -908,62 +908,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
-  Future<void> _injectRememberEmailScript(
-    InAppWebViewController controller,
-  ) async {
-    try {
-      await controller.evaluateJavascript(source: """
-        (function() {
-          function setupRememberEmail() {
-            var emailInputs = document.querySelectorAll('input[type="email"], input[name*="email" i], input[id*="email" i]');
-            if (emailInputs.length === 0) return;
-
-            window.flutter_inappwebview.callHandler('getRememberedEmail').then(function(savedEmail) {
-              if (savedEmail && savedEmail.length > 0) {
-                emailInputs.forEach(function(input) {
-                  if (!input.dataset.emailPopulated && (!input.value || input.value.trim() === '')) {
-                    input.value = savedEmail;
-                    input.dataset.emailPopulated = 'true';
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                  }
-                });
-              }
-            });
-
-            emailInputs.forEach(function(input) {
-              if (input.dataset.rememberEmailAttached) return;
-              input.dataset.rememberEmailAttached = 'true';
-
-              function handleEmailChange() {
-                var val = input.value ? input.value.trim() : '';
-                if (val.length > 0 && val.indexOf('@') !== -1) {
-                  window.flutter_inappwebview.callHandler('saveRememberedEmail', val);
-                } else if (val.length === 0) {
-                  window.flutter_inappwebview.callHandler('clearRememberedEmail');
-                }
-              }
-
-              input.addEventListener('blur', handleEmailChange);
-              input.addEventListener('change', handleEmailChange);
-
-              var form = input.closest('form');
-              if (form && !form.dataset.rememberEmailAttached) {
-                form.dataset.rememberEmailAttached = 'true';
-                form.addEventListener('submit', function() {
-                  handleEmailChange();
-                });
-              }
-            });
-          }
-
-          setupRememberEmail();
-        })();
-      """);
-    } catch (e) {
-      AppLogger.e('Error injecting remember email script', e);
-    }
-  }
 
 
   @override
@@ -1037,6 +981,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     safeBrowsingEnabled: true,
                     disableDefaultErrorPage: true,
                     saveFormData: false,
+                    // Do not persist or offer WebView form credentials/data.
                     disableContextMenu: true,
                     // Enforce HTTPS-only content security and disallow mixed HTTP content
                     mixedContentMode:
@@ -1727,7 +1672,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _restoreSystemUi();
                     }
                     await _injectSecurityAndAutofillScripts(controller);
-                    await _injectRememberEmailScript(controller);
                   },
                   onProgressChanged: (controller, progress) {
                     _mainFrameProgress = progress.clamp(0, 100);
