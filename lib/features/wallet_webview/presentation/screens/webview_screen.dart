@@ -1008,8 +1008,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     // currently viewing. Uncached pages still use the network.
                     cacheMode: _getCurrentCacheMode(),
                     networkAvailable: _isOnline,
-                    // Remove all window/viewport margins, backgrounds, and styling issues
-                    transparentBackground: true,
+                    // Keep the native WebView opaque. The Flutter guard above already
+                    // provides the white startup surface while the page is loading.
+                    // This avoids a transparent WebView rendering as a permanent white
+                    // surface on some Android WebView implementations.
+                    transparentBackground: false,
                     // Enable high fidelity viewport dynamic scaling for smaller devices
                     useWideViewPort: true,
                     loadWithOverviewMode: true,
@@ -1676,7 +1679,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onProgressChanged: (controller, progress) {
                     _mainFrameProgress = progress.clamp(0, 100);
                     webViewNotifier.setProgress(progress / 100);
-                    if (progress < 100 && mounted) {
+
+                    // Progress callbacks can arrive after onLoadStop on some
+                    // Android WebView versions. Never re-cover a page that has
+                    // already completed successfully unless a new main-frame
+                    // navigation has actually started.
+                    if (_mainFrameLoading && progress < 100 && mounted) {
                       if (_webViewReady || !_navigationGuardVisible) {
                         setState(() {
                           _webViewReady = false;
