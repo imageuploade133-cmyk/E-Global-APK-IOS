@@ -1099,10 +1099,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       // navigation), keep the WebView behind an opaque guard until
                       // onLoadStop proves the destination rendered successfully.
                       if (isPreviouslyLoaded || isHistoryNavigation) {
-                        _navigationGuardVisible = false;
+                        _navigationGuardVisible = true;
                         if (mounted) {
                           setState(() {});
-                        }
                         // Give Flutter one frame to paint the guard before allowing
                         // WebView navigation, preventing URL/error-page flashes.
                         await Future<void>.delayed(const Duration(milliseconds: 16));
