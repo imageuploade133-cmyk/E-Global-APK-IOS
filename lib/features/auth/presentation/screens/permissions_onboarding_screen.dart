@@ -118,6 +118,9 @@ class _PermissionsOnboardingScreenState
     // Mark the required permission onboarding complete BEFORE requesting
     // notifications. Notification permission must never be able to trap the
     // user on this startup screen.
+    // The user has explicitly entered the permission onboarding. Persist this
+    // immediately so this screen is never shown again on this device, even if
+    // an individual OS permission is denied or unavailable.
     final secureStorage = ref.read(secureStorageProvider);
     await secureStorage.write(_onboardingCompletedKey, 'true');
 
@@ -175,7 +178,7 @@ class _PermissionsOnboardingScreenState
       barrierDismissible: true,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFFFFFFF),
         title: const Row(
           children: [
             Icon(
