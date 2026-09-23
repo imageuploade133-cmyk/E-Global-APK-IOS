@@ -41,7 +41,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _offlineNavigationOriginUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
-  bool _navigationGuardVisible = true;
+  bool _navigationGuardVisible = false;
   bool _webViewReady = false;
   int _mainFrameProgress = 0;
   final Set<String> _successfullyLoadedUrls = <String>{AppStrings.baseUrl};
@@ -66,6 +66,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   bool _isInBackground = false;
   bool _hasRestoredSystemUi = false;
+  Timer? _startupGuardTimer;
 
   void _restoreSystemUi() {
     if (_hasRestoredSystemUi) return;
@@ -92,6 +93,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Remove any native startup cover as soon as Flutter has painted this screen.
+    // The WebView remains visible while its page loads; errors use the dedicated error UI.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _restoreSystemUi();
+      _startupGuardTimer?.cancel();
+      _startupGuardTimer = Timer(const Duration(seconds: 2), () {
+        if (!mounted) return;
+        if (_navigationGuardVisible && !_hasLoadError && !_isCrashing) {
+          setState(() => _navigationGuardVisible = false);
+        }
+      });
+    });
     _initConnectivity();
     _initPushNotifications();
     // Keep the native splash/opaque startup guard visible until the WebView has
@@ -104,6 +118,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _connectivitySubscription?.cancel();
     _redirectSubscription?.cancel();
     _loadingTimeoutTimer?.cancel();
+    _startupGuardTimer?.cancel();
     super.dispose();
   }
 
@@ -1075,7 +1090,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       // navigation), keep the WebView behind an opaque guard until
                       // onLoadStop proves the destination rendered successfully.
                       if (isPreviouslyLoaded || isHistoryNavigation) {
-                        _navigationGuardVisible = true;
+                        _navigationGuardVisible = false;
                         if (mounted) {
                           setState(() {});
                         }
@@ -1544,7 +1559,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _mainFrameLoading = true;
                     _mainFrameProgress = 0;
                     _webViewReady = false;
-                    _navigationGuardVisible = true;
+                    _navigationGuardVisible = false;
                     _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
@@ -1684,14 +1699,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     // Android WebView versions. Never re-cover a page that has
                     // already completed successfully unless a new main-frame
                     // navigation has actually started.
-                    if (_mainFrameLoading && progress < 100 && mounted) {
-                      if (_webViewReady || !_navigationGuardVisible) {
-                        setState(() {
-                          _webViewReady = false;
-                          _navigationGuardVisible = true;
-                        });
-                      }
-                    }
+                    // Never re-cover the WebView with a full-screen Flutter overlay during loading.
+                    // Progress remains available for recovery/diagnostics.
                   },
                   onReceivedError: (controller, request, error) async {
                     AppLogger.e(
@@ -1986,12 +1995,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 ),
               ),
               ),
-              if (_navigationGuardVisible &&
-                  !_hasLoadError &&
-                  !_isCrashing)
-                const Positioned.fill(
-                  child: ColoredBox(color: Colors.white),
-                ),
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
                   child: !_isOnline
