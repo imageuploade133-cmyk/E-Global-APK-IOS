@@ -29,6 +29,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   InAppWebViewController? _webViewController;
   String? _lastToken;
+  bool _backendRegistrationInProgress = false;
 
   // Stream controller to broadcast destination paths to the WebView
   final StreamController<String> _redirectController =
@@ -40,8 +41,87 @@ class PushNotificationServiceImpl implements PushNotificationService {
   @override
   void setWebViewController(InAppWebViewController controller) {
     _webViewController = controller;
-    if (_lastToken != null) {
-      _syncTokenWithWebView(_lastToken!);
+    final token = _lastToken;
+    if (token != null) {
+      _syncTokenWithWebView(token);
+      unawaited(_registerTokenWithCurrentWebSession(token));
+    }
+  }
+
+  Future<String?> _getActiveSessionIdFromWebView() async {
+    final controller = _webViewController;
+    if (controller == null) return null;
+    try {
+      final raw = await controller.evaluateJavascript(
+        source: "window.localStorage.getItem('active_session_id')",
+      );
+      if (raw == null) return null;
+      final value = raw.toString().trim();
+      if (value.isEmpty || value == 'null' || value == 'undefined') return null;
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        try {
+          final decoded = jsonDecode(value);
+          if (decoded is String && decoded.isNotEmpty) return decoded;
+        } catch (_) {}
+      }
+      return value;
+    } catch (e) {
+      AppLogger.w('Could not read active session ID from WebView: $e');
+      return null;
+    }
+  }
+
+  Future<void> _registerTokenWithCurrentWebSession(String token) async {
+    if (_backendRegistrationInProgress) return;
+    _backendRegistrationInProgress = true;
+    try {
+      const delays = <Duration>[
+        Duration(milliseconds: 300),
+        Duration(milliseconds: 700),
+        Duration(seconds: 1),
+        Duration(seconds: 2),
+        Duration(seconds: 3),
+        Duration(seconds: 5),
+        Duration(seconds: 7),
+        Duration(seconds: 10),
+      ];
+      for (var attempt = 0; attempt < delays.length; attempt++) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) return;
+        final sessionId = await _getActiveSessionIdFromWebView();
+        if (sessionId == null || sessionId.isEmpty) {
+          await Future<void>.delayed(delays[attempt]);
+          continue;
+        }
+        final idToken = await user.getIdToken(true);
+        if (idToken == null || idToken.isEmpty) {
+          await Future<void>.delayed(delays[attempt]);
+          continue;
+        }
+        final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
+        final response = await http.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $idToken',
+            'X-Session-ID': sessionId,
+          },
+          body: jsonEncode({
+            'token': token,
+            'platform': Platform.isAndroid ? 'android' : 'ios',
+          }),
+        ).timeout(const Duration(seconds: 10));
+        if (response.statusCode == 200) {
+          AppLogger.i('FCM token registered for the verified active device session.');
+          return;
+        }
+        AppLogger.w('Active-session FCM registration attempt ${attempt + 1} returned ${response.statusCode}.');
+        await Future<void>.delayed(delays[attempt]);
+      }
+    } catch (e) {
+      AppLogger.w('Active-session FCM registration failed: $e');
+    } finally {
+      _backendRegistrationInProgress = false;
     }
   }
 
@@ -201,34 +281,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
     try {
       _lastToken = token;
 
-      // 1. Direct native HTTP registration to backend /api/fcm/register with Firebase ID token authentication
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final idToken = await user.getIdToken();
-          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
-          final response = await http.post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $idToken',
-            },
-            body: jsonEncode({'token': token, 'platform': Platform.isAndroid ? 'android' : 'ios'}),
-          ).timeout(const Duration(seconds: 10));
+      // Register only against the current server-authoritative session.
+      // Firebase auth may be restored before a new-device session is verified.
+      await _registerTokenWithCurrentWebSession(token);
 
-          if (response.statusCode == 200) {
-            AppLogger.i('Native FCM token successfully registered directly with backend /api/fcm/register');
-          } else {
-            AppLogger.w('Backend /api/fcm/register returned status code: ${response.statusCode}');
-          }
-        } else {
-          AppLogger.i('No authenticated user active yet. FCM token cached until user login.');
-        }
-      } catch (netErr) {
-        AppLogger.w('Direct native FCM token registration network exception: $netErr');
-      }
-
-      // 2. Synchronize token with WebView JS Bridge if WebView is active
+      // Synchronize token with WebView JS Bridge if WebView is active
       await _syncTokenWithWebView(token);
       AppLogger.i('FCM token cached and synchronized');
     } catch (e) {
