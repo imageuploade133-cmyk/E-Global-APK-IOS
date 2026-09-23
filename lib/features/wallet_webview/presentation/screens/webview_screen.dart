@@ -17,7 +17,6 @@ import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
 import 'package:wallet/core/services/core_providers.dart';
 import 'package:wallet/core/utils/logger.dart';
-import '../../../offline/offline_screen.dart';
 import '../widgets/download_progress_bar.dart';
 import '../widgets/webview_error_overlay.dart';
 import '../controllers/webview_controller.dart';
@@ -99,12 +98,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (!mounted) return;
       _restoreSystemUi();
       _startupGuardTimer?.cancel();
-      _startupGuardTimer = Timer(const Duration(seconds: 2), () {
-        if (!mounted) return;
-        if (_navigationGuardVisible && !_hasLoadError && !_isCrashing) {
-          setState(() => _navigationGuardVisible = false);
-        }
-      });
     });
     _initConnectivity();
     _initPushNotifications();
@@ -145,7 +138,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final connectivity = ref.read(connectivityServiceProvider);
     _isOnline = await connectivity.isConnected;
     if (mounted) {
-      setState(() {});
+      setState(() {
+        if (!_isOnline) {
+          _hasLoadError = true;
+          _isCrashing = false;
+          _isUserRetrying = false;
+          _navigationGuardVisible = true;
+        }
+      });
     }
 
     _connectivitySubscription = connectivity.onConnectivityChanged.listen((
@@ -194,7 +194,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void _startLoadingTimer() {
     _loadingTimeoutTimer?.cancel();
     // If page load takes longer than 20 seconds, hide webview and show try again overlay
-    _loadingTimeoutTimer = Timer(const Duration(seconds: 20), () {
+    _loadingTimeoutTimer = Timer(const Duration(seconds: 7), () {
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
@@ -230,6 +230,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         await HapticFeedback.vibrate();
       } catch (_) {}
     }
+  }
+
+  Future<void> _handleOfflineRetryAndExit() async {
+    // Give immediate native feedback, then close the app. This keeps the
+    // untrusted WebView/error URL completely hidden when there is no network.
+    await _triggerNativeHaptic();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!mounted) return;
+    SystemNavigator.pop();
   }
 
   Future<void> _checkConnectionAndReload() async {
@@ -1573,7 +1582,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _mainFrameLoading = true;
                     _mainFrameProgress = 0;
                     _webViewReady = false;
-                    _navigationGuardVisible = false;
+                    // Keep an opaque Flutter surface above WebView until a trusted
+                    // page has fully loaded. This prevents Chromium/WebView URLs,
+                    // blank error pages, and partial slow-network pages from ever
+                    // being exposed to the user.
+                    _navigationGuardVisible = true;
                     _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
@@ -2011,21 +2024,21 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               ),
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
-                  child: !_isOnline
-                      ? OfflineScreen(
+                  child: _isOnline && !_isCrashing
+                      ? WebviewErrorOverlay(
+                          title: AppStrings.webViewLoadErrorTitle,
+                          subtitle: AppStrings.webViewLoadErrorSubtitle,
                           isRetrying: _isUserRetrying,
                           onRetry: _checkConnectionAndReload,
                         )
-                      : WebviewErrorOverlay(
-                          title: _isCrashing
-                              ? AppStrings.webViewCrashTitle
-                              : AppStrings.webViewLoadErrorTitle,
-                          subtitle: _isCrashing
-                              ? AppStrings.webViewCrashSubtitle
-                              : AppStrings.webViewLoadErrorSubtitle,
-                          isRetrying: _isUserRetrying,
-                          onRetry: _checkConnectionAndReload,
-                        ),
+                      : _buildSensitiveOfflineErrorUi(),
+                ),
+              // Final privacy guard: while a main-frame URL is loading, Flutter
+              // paints an opaque white surface above the WebView. The WebView is
+              // only exposed after onLoadStop verifies a trusted origin.
+              if (_navigationGuardVisible && !_hasLoadError && !_isCrashing)
+                const Positioned.fill(
+                  child: ColoredBox(color: Colors.white),
                 ),
               if (_isDownloading)
                 Align(
