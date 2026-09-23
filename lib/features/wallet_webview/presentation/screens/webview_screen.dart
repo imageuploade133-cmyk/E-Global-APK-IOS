@@ -93,13 +93,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Remove any native startup cover as soon as Flutter has painted this screen.
-    // The WebView remains visible while its page loads; errors use the dedicated error UI.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _restoreSystemUi();
-      _startupGuardTimer?.cancel();
-    });
+    // Keep the original native splash/opaque surface in place until connectivity
+    // is known and, when online, until a trusted WebView page has fully loaded.
+    // This prevents the initial WebView URL/error page from ever flashing.
     _initConnectivity();
     _initPushNotifications();
     // Keep the native splash/opaque startup guard visible until the WebView has
@@ -149,6 +145,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _navigationGuardVisible = true;
         }
       });
+      // Offline startup has a terminal Flutter error state, so it is safe to
+      // remove the native splash now. Online startup stays covered until
+      // onLoadStop proves that a trusted page rendered successfully.
+      if (!initialConnectivity) {
+        _restoreSystemUi();
+      }
     }
 
     _connectivitySubscription = connectivity.onConnectivityChanged.listen((
@@ -940,6 +942,25 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   @override
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
+
+    // Fail closed before connectivity is initialized: do not create the
+    // WebView until the network state is known. This removes the startup race
+    // where Chromium could briefly expose the public URL or native error page.
+    if (!_connectivityInitialized) {
+      return const Scaffold(
+        backgroundColor: bleachWhite,
+        body: ColoredBox(color: bleachWhite),
+      );
+    }
+
+    // Offline startup never creates a WebView. Only the sensitive Flutter
+    // connection UI is exposed to the user.
+    if (!_isOnline && _hasLoadError) {
+      return Scaffold(
+        backgroundColor: bleachWhite,
+        body: _buildSensitiveOfflineErrorUi(),
+      );
+    }
 
     return PopScope(
       canPop: false,
