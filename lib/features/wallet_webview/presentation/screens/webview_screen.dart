@@ -33,7 +33,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   InAppWebViewController? _webViewController;
   StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<String>? _redirectSubscription;
-  bool _isOnline = true;
+  bool _isOnline = false;
+  bool _connectivityInitialized = false;
   String? _pendingRedirectPath;
   String _currentUrl = AppStrings.baseUrl;
   String _lastSuccessfulUrl = AppStrings.baseUrl;
@@ -136,7 +137,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   Future<void> _initConnectivity() async {
     final connectivity = ref.read(connectivityServiceProvider);
-    _isOnline = await connectivity.isConnected;
+    final initialConnectivity = await connectivity.isConnected;
+    _isOnline = initialConnectivity;
+    _connectivityInitialized = true;
     if (mounted) {
       setState(() {
         if (!_isOnline) {
