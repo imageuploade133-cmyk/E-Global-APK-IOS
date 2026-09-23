@@ -249,12 +249,18 @@ class PushNotificationServiceImpl implements PushNotificationService {
       if (token != null && user != null) {
         try {
           final idToken = await user.getIdToken();
+          final sessionId = await _getActiveSessionIdFromWebView();
+          if (sessionId == null || sessionId.isEmpty) {
+            AppLogger.w('Skipping native FCM unregister because the active session ID is unavailable.');
+            return;
+          }
           final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
           final response = await http.delete(
             uri,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $idToken',
+              'X-Session-ID': sessionId,
             },
             body: jsonEncode({'token': token}),
           ).timeout(const Duration(seconds: 10));
