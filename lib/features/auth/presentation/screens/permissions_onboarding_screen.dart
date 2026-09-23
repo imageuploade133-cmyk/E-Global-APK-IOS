@@ -65,7 +65,10 @@ class _PermissionsOnboardingScreenState
     final completed = await secureStorage.read(_onboardingCompletedKey) == 'true';
     final allGranted = await _areRequiredPermissionsGranted();
 
-    if (completed && allGranted) {
+    // Once onboarding has been completed, never trap the user back on this
+    // startup page because an optional/runtime permission was later revoked.
+    // Individual WebView features continue to request/check their own OS permissions.
+    if (completed) {
       if (mounted) setState(() => _checkingInitialState = false);
       await _proceedToApp();
       return;
@@ -203,7 +206,9 @@ class _PermissionsOnboardingScreenState
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _proceedToApp();
+              final secureStorage = ref.read(secureStorageProvider);
+              await secureStorage.write(_onboardingCompletedKey, 'true');
+              await _proceedToApp();
             },
             child: const Text(
               'Continue Anyway',
