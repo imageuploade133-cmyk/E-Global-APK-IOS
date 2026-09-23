@@ -34,13 +34,13 @@ class MainActivity: FlutterFragmentActivity() {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         vibrator.vibrate(
                             android.os.VibrationEffect.createOneShot(
-                                45L,
+                                60L,
                                 android.os.VibrationEffect.DEFAULT_AMPLITUDE
                             )
                         )
                     } else {
                         @Suppress("DEPRECATION")
-                        vibrator.vibrate(45L)
+                        vibrator.vibrate(60L)
                     }
                     result.success(null)
                 } catch (e: Exception) {
