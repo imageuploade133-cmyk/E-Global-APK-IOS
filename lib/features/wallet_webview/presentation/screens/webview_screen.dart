@@ -1200,8 +1200,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     pushService.setWebViewController(controller);
 
-                    // Expose the native haptic bridge to the wallet web app.
-                    // The native Android/iOS bridge provides the stronger app-style pulse.
+                    // Expose native haptic feedback to the wallet web app.
+                    // The existing Android/iOS native bridge provides the stronger app-style pulse.
                     controller.addJavaScriptHandler(
                       handlerName: 'triggerHaptic',
                       callback: (args) async {

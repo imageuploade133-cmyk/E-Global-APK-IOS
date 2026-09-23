@@ -3,12 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'core/utils/logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
 import 'features/auth/presentation/screens/biometric_login_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
+import 'core/security/secure_storage_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -32,8 +34,42 @@ void main() async {
     );
   }
 
+  // Resolve the startup route before Flutter renders the first screen so a user
+  // who already completed permissions never sees the onboarding page again.
+  // The onboarding screen remains the safety fallback if the marker is absent.
+  var initialRoute = '/permissions';
+  try {
+    const onboardingKey = 'eglobal_permissions_onboarding_completed_v1';
+    final storage = SecureStorageServiceImpl();
+    final completed = await storage.read(onboardingKey) == 'true';
+
+    // Migration-safe: older installs may already have all required
+    // permissions granted even if the completion marker was not persisted.
+    bool requiredPermissionsGranted = true;
+    for (final permission in <Permission>[
+      Permission.camera,
+      Permission.microphone,
+      Permission.locationWhenInUse,
+    ]) {
+      final status = await permission.status;
+      if (!(status.isGranted || status.isLimited || status.isRestricted)) {
+        requiredPermissionsGranted = false;
+        break;
+      }
+    }
+
+    if (completed || requiredPermissionsGranted) {
+      initialRoute = '/webview';
+      if (!completed && requiredPermissionsGranted) {
+        await storage.write(onboardingKey, 'true');
+      }
+    }
+  } catch (e) {
+    AppLogger.e('Failed to read permissions onboarding state; using safe fallback.', e);
+  }
+
   runApp(
-    const ProviderScope(child: EGlobalWalletApp(initialRoute: '/permissions')),
+    ProviderScope(child: EGlobalWalletApp(initialRoute: initialRoute)),
   );
 }
 

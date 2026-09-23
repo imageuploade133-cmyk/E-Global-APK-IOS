@@ -16,7 +16,7 @@ class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _PermissionsOnboardingScreenState
-    extends ConsumerState<PermissionsOnboardingScreen> {
+    extends ConsumerState<PermissionsOnboardingScreen> with WidgetsBindingObserver {
   bool _isRequesting = false;
   static const String _onboardingCompletedKey = 'eglobal_permissions_onboarding_completed_v1';
   bool _checkingInitialState = true;
@@ -31,28 +31,44 @@ class _PermissionsOnboardingScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPermissionsAndProceed();
     });
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_isRequesting) {
+      _checkPermissionsAndProceed();
+    }
+  }
+
+  Future<bool> _areRequiredPermissionsGranted() async {
+    for (final perm in _permissions) {
+      final status = await perm.status;
+      if (!(status.isGranted || status.isLimited || status.isRestricted)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _checkPermissionsAndProceed() async {
     final secureStorage = ref.read(secureStorageProvider);
     final completed = await secureStorage.read(_onboardingCompletedKey) == 'true';
-    if (completed) {
+    final allGranted = await _areRequiredPermissionsGranted();
+
+    if (completed && allGranted) {
       if (mounted) setState(() => _checkingInitialState = false);
       await _proceedToApp();
       return;
-    }
-    bool allGranted = true;
-    for (final perm in _permissions) {
-      final status = await perm.status;
-      final isGranted =
-          status.isGranted || status.isLimited || status.isRestricted;
-      if (!isGranted) {
-        allGranted = false;
-        break;
-      }
     }
 
     if (allGranted) {
@@ -96,18 +112,24 @@ class _PermissionsOnboardingScreenState
       }
     }
 
-    // Attempt to request notifications silently on onboarding
-    try {
-      await Permission.notification.request();
-    } catch (_) {
-      // Non-blocking catch
-    }
+    // Mark the required permission onboarding complete BEFORE requesting
+    // notifications. Notification permission must never be able to trap the
+    // user on this startup screen.
+    final secureStorage = ref.read(secureStorageProvider);
+    await secureStorage.write(_onboardingCompletedKey, 'true');
 
     setState(() {
       _isRequesting = false;
     });
-    final secureStorage = ref.read(secureStorageProvider);
-    await secureStorage.write(_onboardingCompletedKey, 'true');
+
+    // Notification permission is optional for entering the wallet and must
+    // remain non-blocking.
+    try {
+      await Permission.notification.request();
+    } catch (_) {
+      // Non-blocking catch.
+    }
+
     await _proceedToApp();
   }
 
