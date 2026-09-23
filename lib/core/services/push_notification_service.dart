@@ -252,23 +252,23 @@ class PushNotificationServiceImpl implements PushNotificationService {
           final sessionId = await _getActiveSessionIdFromWebView();
           if (sessionId == null || sessionId.isEmpty) {
             AppLogger.w('Skipping native FCM unregister because the active session ID is unavailable.');
-            return;
-          }
-          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
-          final response = await http.delete(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $idToken',
-              'X-Session-ID': sessionId,
-            },
-            body: jsonEncode({'token': token}),
-          ).timeout(const Duration(seconds: 10));
-
-          if (response.statusCode == 200) {
-            AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister for user ${user.uid}');
           } else {
-            AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
+            final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
+            final response = await http.delete(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $idToken',
+                'X-Session-ID': sessionId,
+              },
+              body: jsonEncode({'token': token}),
+            ).timeout(const Duration(seconds: 10));
+
+            if (response.statusCode == 200) {
+              AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister for user ${user.uid}');
+            } else {
+              AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
+            }
           }
         } catch (netErr) {
           AppLogger.w('Native FCM token unregister network exception: $netErr');
