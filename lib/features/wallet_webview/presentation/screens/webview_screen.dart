@@ -1232,6 +1232,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'Blocked unsafe/unknown navigation request to: $urlString',
                     );
                     return NavigationActionPolicy.CANCEL;
+                  }
+                  // End of the main-frame HTTP/HTTPS navigation guard.
                   },
                   onWebViewCreated: (controller) {
                     _webViewController = controller;
