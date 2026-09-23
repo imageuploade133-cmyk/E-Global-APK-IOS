@@ -18,6 +18,8 @@ class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
 class _PermissionsOnboardingScreenState
     extends ConsumerState<PermissionsOnboardingScreen> {
   bool _isRequesting = false;
+  static const String _onboardingCompletedKey = 'eglobal_permissions_onboarding_completed_v1';
+  bool _checkingInitialState = true;
 
   // Essential critical permissions that are required for the application's secure operations to function
   final List<Permission> _permissions = [
@@ -35,6 +37,13 @@ class _PermissionsOnboardingScreenState
   }
 
   Future<void> _checkPermissionsAndProceed() async {
+    final secureStorage = ref.read(secureStorageProvider);
+    final completed = await secureStorage.read(_onboardingCompletedKey) == 'true';
+    if (completed) {
+      if (mounted) setState(() => _checkingInitialState = false);
+      await _proceedToApp();
+      return;
+    }
     bool allGranted = true;
     for (final perm in _permissions) {
       final status = await perm.status;
@@ -47,8 +56,11 @@ class _PermissionsOnboardingScreenState
     }
 
     if (allGranted) {
+      await secureStorage.write(_onboardingCompletedKey, 'true');
+      if (mounted) setState(() => _checkingInitialState = false);
       await _proceedToApp();
     } else {
+      if (mounted) setState(() => _checkingInitialState = false);
       // If onboarding UI needs to be displayed, restore normal system UI and remove splash screen
       SystemChrome.setEnabledSystemUIMode(
         SystemUiMode.manual,
@@ -94,7 +106,8 @@ class _PermissionsOnboardingScreenState
     setState(() {
       _isRequesting = false;
     });
-
+    final secureStorage = ref.read(secureStorageProvider);
+    await secureStorage.write(_onboardingCompletedKey, 'true');
     await _proceedToApp();
   }
 
@@ -268,6 +281,9 @@ class _PermissionsOnboardingScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (_checkingInitialState) {
+      return const Scaffold(backgroundColor: Colors.white, body: SizedBox.shrink());
+    }
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
