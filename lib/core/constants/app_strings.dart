@@ -1,6 +1,8 @@
 class AppStrings {
   static const String appName = 'E-Global Pay';
   static const String baseUrl = 'https://e-global-197077.vercel.app/';
+  static const String bundleVersion = '1.0.0';
+  static const String localHostBaseUrl = 'http://localhost:8080/';
   static const String packageIdentifier = 'com.eglobal.wallet';
   static const String biometricKey = 'biometric_enabled';
   static const String credentialsKey = 'secure_wallet_credentials';
@@ -17,11 +19,22 @@ class AppStrings {
   ];
 
   static bool isTrustedWalletOrigin(Uri uri) {
-    if (uri.scheme.toLowerCase() != 'https') return false;
-    final expectedUri = Uri.parse(baseUrl);
+    final scheme = uri.scheme.toLowerCase();
     final host = uri.host.toLowerCase();
-    final expectedHost = expectedUri.host.toLowerCase();
-    return host == expectedHost || host.endsWith('.$expectedHost');
+
+    // 1. Local web asset server origin (exact host check)
+    if (scheme == 'http') {
+      return host == 'localhost' || host == '127.0.0.1';
+    }
+
+    // 2. Production Vercel web origin (exact host/subdomain check)
+    if (scheme == 'https') {
+      final expectedUri = Uri.parse(baseUrl);
+      final expectedHost = expectedUri.host.toLowerCase();
+      return host == expectedHost || host == 'e-global-197077.vercel.app' || host.endsWith('.$expectedHost');
+    }
+
+    return false;
   }
 
   static bool isTrustedGatewayOrigin(Uri uri) {
