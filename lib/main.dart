@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'core/utils/logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
@@ -41,8 +42,27 @@ void main() async {
     const onboardingKey = 'eglobal_permissions_onboarding_completed_v1';
     final storage = SecureStorageServiceImpl();
     final completed = await storage.read(onboardingKey) == 'true';
-    if (completed) {
+
+    // Migration-safe: older installs may already have all required
+    // permissions granted even if the completion marker was not persisted.
+    bool requiredPermissionsGranted = true;
+    for (final permission in <Permission>[
+      Permission.camera,
+      Permission.microphone,
+      Permission.locationWhenInUse,
+    ]) {
+      final status = await permission.status;
+      if (!(status.isGranted || status.isLimited || status.isRestricted)) {
+        requiredPermissionsGranted = false;
+        break;
+      }
+    }
+
+    if (completed || requiredPermissionsGranted) {
       initialRoute = '/webview';
+      if (!completed && requiredPermissionsGranted) {
+        await storage.write(onboardingKey, 'true');
+      }
     }
   } catch (e) {
     AppLogger.e('Failed to read permissions onboarding state; using safe fallback.', e);
