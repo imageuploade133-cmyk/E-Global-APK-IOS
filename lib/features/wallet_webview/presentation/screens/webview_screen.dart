@@ -1200,6 +1200,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     pushService.setWebViewController(controller);
 
+                    // Expose native haptic feedback to the wallet web app.
+                    // The existing Android/iOS native bridge provides the stronger app-style pulse.
+                    controller.addJavaScriptHandler(
+                      handlerName: 'triggerHaptic',
+                      callback: (args) async {
+                        try {
+                          await const MethodChannel('com.eglobal.wallet/haptics')
+                              .invokeMethod<void>('vibrate');
+                        } catch (_) {
+                          // Haptics are optional and must never affect navigation.
+                        }
+                      },
+                    );
+
                     // Expose 'unregisterFcmToken' handler to the web app for secure native FCM unregistration on logout
                     controller.addJavaScriptHandler(
                       handlerName: 'unregisterFcmToken',
