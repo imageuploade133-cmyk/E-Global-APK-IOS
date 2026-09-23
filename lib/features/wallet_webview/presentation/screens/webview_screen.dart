@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/core/constants/app_strings.dart';
+import 'package:wallet/core/services/bundle_update_service.dart';
 import 'package:wallet/core/services/core_providers.dart';
 import 'package:wallet/core/utils/logger.dart';
 import '../widgets/download_progress_bar.dart';
@@ -31,10 +32,7 @@ class WebviewScreen extends ConsumerStatefulWidget {
 class _WebviewScreenState extends ConsumerState<WebviewScreen>
     with WidgetsBindingObserver {
   InAppWebViewController? _webViewController;
-  final InAppLocalhostServer _localhostServer = InAppLocalhostServer(
-    documentRoot: 'assets/web',
-    port: 8080,
-  );
+  InAppLocalhostServer? _localhostServer;
   bool _localhostServerStarted = false;
 
   StreamSubscription<bool>? _connectivitySubscription;
@@ -108,14 +106,29 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   Future<void> _startLocalhostServer() async {
     try {
-      if (!_localhostServer.isRunning()) {
-        await _localhostServer.start();
+      final updateService = BundleUpdateService();
+      final activeBundlePath = await updateService.getActiveBundlePath();
+
+      final documentRoot = activeBundlePath ?? 'assets/web';
+      AppLogger.i('InAppLocalhostServer starting with documentRoot: $documentRoot');
+
+      _localhostServer = InAppLocalhostServer(
+        documentRoot: documentRoot,
+        port: 8080,
+      );
+
+      if (!_localhostServer!.isRunning()) {
+        await _localhostServer!.start();
       }
+
       if (mounted) {
         setState(() {
           _localhostServerStarted = true;
         });
       }
+
+      // Non-blocking background check for remote bundle updates
+      updateService.checkForUpdatesInBackground();
     } catch (e) {
       AppLogger.e('Failed to start InAppLocalhostServer', e);
     }
@@ -128,8 +141,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _redirectSubscription?.cancel();
     _loadingTimeoutTimer?.cancel();
     _startupGuardTimer?.cancel();
-    if (_localhostServer.isRunning()) {
-      _localhostServer.close();
+    if (_localhostServer != null && _localhostServer!.isRunning()) {
+      _localhostServer!.close();
     }
     super.dispose();
   }
