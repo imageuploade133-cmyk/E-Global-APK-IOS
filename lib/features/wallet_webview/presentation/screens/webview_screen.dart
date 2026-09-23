@@ -33,7 +33,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   InAppWebViewController? _webViewController;
   StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<String>? _redirectSubscription;
-  bool _isOnline = true;
+  bool _isOnline = false;
+  bool _connectivityInitialized = false;
   String? _pendingRedirectPath;
   String _currentUrl = AppStrings.baseUrl;
   String _lastSuccessfulUrl = AppStrings.baseUrl;
@@ -136,7 +137,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   Future<void> _initConnectivity() async {
     final connectivity = ref.read(connectivityServiceProvider);
-    _isOnline = await connectivity.isConnected;
+    final initialConnectivity = await connectivity.isConnected;
+    _isOnline = initialConnectivity;
+    _connectivityInitialized = true;
     if (mounted) {
       setState(() {
         if (!_isOnline) {
@@ -2023,14 +2026,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               ),
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
-                  child: _isOnline && !_isCrashing
-                      ? WebviewErrorOverlay(
-                          title: AppStrings.webViewLoadErrorTitle,
-                          subtitle: AppStrings.webViewLoadErrorSubtitle,
-                          isRetrying: _isUserRetrying,
-                          onRetry: _checkConnectionAndReload,
-                        )
-                      : _buildSensitiveOfflineErrorUi(),
+                  child: _buildSensitiveOfflineErrorUi(),
                 ),
               // Final privacy guard: while a main-frame URL is loading, Flutter
               // paints an opaque white surface above the WebView. The WebView is
