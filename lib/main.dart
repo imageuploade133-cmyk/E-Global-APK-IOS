@@ -9,6 +9,7 @@ import 'core/theme/theme_provider.dart';
 import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
 import 'features/auth/presentation/screens/biometric_login_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
+import 'core/security/secure_storage_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -32,8 +33,23 @@ void main() async {
     );
   }
 
+  // Resolve the startup route before Flutter renders the first screen so a user
+  // who already completed permissions never sees the onboarding page again.
+  // The onboarding screen remains the safety fallback if the marker is absent.
+  var initialRoute = '/permissions';
+  try {
+    const onboardingKey = 'eglobal_permissions_onboarding_completed_v1';
+    final storage = SecureStorageServiceImpl();
+    final completed = await storage.read(onboardingKey) == 'true';
+    if (completed) {
+      initialRoute = '/webview';
+    }
+  } catch (e) {
+    AppLogger.e('Failed to read permissions onboarding state; using safe fallback.', e);
+  }
+
   runApp(
-    const ProviderScope(child: EGlobalWalletApp(initialRoute: '/permissions')),
+    ProviderScope(child: EGlobalWalletApp(initialRoute: initialRoute)),
   );
 }
 
