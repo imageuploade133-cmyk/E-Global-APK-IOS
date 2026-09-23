@@ -93,13 +93,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Remove any native startup cover as soon as Flutter has painted this screen.
-    // The WebView remains visible while its page loads; errors use the dedicated error UI.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _restoreSystemUi();
-      _startupGuardTimer?.cancel();
-    });
+    // Keep the original native splash/opaque surface in place until connectivity
+    // is known and, when online, until a trusted WebView page has fully loaded.
+    // This prevents the initial WebView URL/error page from ever flashing.
     _initConnectivity();
     _initPushNotifications();
     // Keep the native splash/opaque startup guard visible until the WebView has
@@ -149,6 +145,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _navigationGuardVisible = true;
         }
       });
+      // Offline startup has a terminal Flutter error state, so it is safe to
+      // remove the native splash now. Online startup stays covered until
+      // onLoadStop proves that a trusted page rendered successfully.
+      if (!initialConnectivity) {
+        _restoreSystemUi();
+      }
     }
 
     _connectivitySubscription = connectivity.onConnectivityChanged.listen((
@@ -940,6 +942,26 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   @override
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
+
+    // Fail closed before connectivity is initialized: do not even create the
+    // WebView until we know whether a network connection is available.
+    // This removes the startup race where Chromium could briefly expose the
+    // public URL or its native error page before Flutter's guard is painted.
+    if (!_connectivityInitialized) {
+      return const Scaffold(
+        backgroundColor: bleachWhite,
+        body: ColoredBox(color: bleachWhite),
+      );
+    }
+
+    // Offline startup never creates a WebView. The sensitive Flutter error UI
+    // is the only content exposed to the user.
+    if (!_isOnline && _hasLoadError) {
+      return Scaffold(
+        backgroundColor: bleachWhite,
+        body: _buildSensitiveOfflineErrorUi(),
+      );
+    }
 
     return PopScope(
       canPop: false,
@@ -1798,282 +1820,3 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _hasLoadError = true;
                           _isCrashing = false;
                           _isUserRetrying = false;
-                        });
-                      }
-                    }
-                  },
-                  onReceivedHttpError: (controller, request, errorResponse) async {
-                    AppLogger.e(
-                      'WebView HTTP error handled: ${errorResponse.statusCode}',
-                    );
-                    if ((request.isForMainFrame == true) &&
-                        (errorResponse.statusCode ?? 200) >= 400) {
-                      _webViewReady = false;
-                      _navigationGuardVisible = false;
-                      _restoreSystemUi();
-                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
-                        _offlineNavigationRestoring = true;
-                        _offlineNavigationInProgress = false;
-                        _stopLoadingTimer();
-                        final previousUrl = _offlineNavigationOriginUrl;
-                        if (previousUrl != null) {
-                          try {
-                            if (await controller.canGoBack()) {
-                              await controller.goBack();
-                              return;
-                            }
-                            await controller.loadUrl(
-                              urlRequest: URLRequest(url: WebUri(previousUrl)),
-                            );
-                            return;
-                          } catch (e) {
-                            AppLogger.e('Failed to restore cached page after offline HTTP error', e);
-                          }
-                        }
-                        if (mounted) {
-                          setState(() {
-                            _hasLoadError = true;
-                            _isUserRetrying = false;
-                          });
-                        }
-                        return;
-                      }
-
-                      if (_isUserRetrying) return;
-                      if (!_mainFrameLoading) return;
-
-                      final attemptAtCallback = _loadAttemptId;
-                      final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url?.toString();
-
-                      _stopLoadingTimer();
-                      _restoreSystemUi();
-                      final connectivity = ref.read(connectivityServiceProvider);
-                      final isConnected = await connectivity.isConnected;
-
-                      if (mounted &&
-                          _mainFrameLoading &&
-                          _loadAttemptId == attemptAtCallback &&
-                          _loadingMainFrameUrl == loadingUrlAtCallback &&
-                          (loadingUrlAtCallback == null ||
-                              requestUrl == null ||
-                              requestUrl == loadingUrlAtCallback)) {
-                        _mainFrameLoading = false;
-                        _recoveryAttemptId = null;
-                        setState(() {
-                          _isOnline = isConnected;
-                          _hasLoadError = true;
-                          _isCrashing = false;
-                          _isUserRetrying = false;
-                        });
-                      }
-                    }
-                  },
-                  onReceivedServerTrustAuthRequest: (controller, challenge) async {
-                    AppLogger.e(
-                      'WebView SSL/Trust authentication requested for host: ${challenge.protectionSpace.host}',
-                    );
-                    // Return cancel to safely handle SSL errors / protect connection in production
-                    return ServerTrustAuthResponse(
-                      action: ServerTrustAuthResponseAction.CANCEL,
-                    );
-                  },
-                  onJsAlert: (controller, jsAlertRequest) async {
-                    final msg = _sanitizeStringForDisplayOrShare(
-                      jsAlertRequest.message ?? '',
-                    );
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        title: const Text(
-                          'E-Global Pay',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        content: Text(msg),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text(
-                              'OK',
-                              style: TextStyle(
-                                color: Colors.orange,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                    return JsAlertResponse(
-                      action: JsAlertResponseAction.CONFIRM,
-                    );
-                  },
-                  onJsConfirm: (controller, jsConfirmRequest) async {
-                    final msg = _sanitizeStringForDisplayOrShare(
-                      jsConfirmRequest.message ?? '',
-                    );
-                    final bool? result = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        title: const Text(
-                          'E-Global Pay',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        content: Text(msg),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(true),
-                            child: const Text(
-                              'Confirm',
-                              style: TextStyle(
-                                color: Colors.orange,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                    return JsConfirmResponse(
-                      action: (result ?? false)
-                          ? JsConfirmResponseAction.CONFIRM
-                          : JsConfirmResponseAction.CANCEL,
-                    );
-                  },
-                  onJsPrompt: (controller, jsPromptRequest) async {
-                    final msg = _sanitizeStringForDisplayOrShare(
-                      jsPromptRequest.message ?? '',
-                    );
-                    final TextEditingController textController =
-                        TextEditingController(
-                          text: jsPromptRequest.defaultValue,
-                        );
-                    final String? result = await showDialog<String>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        title: const Text(
-                          'E-Global Pay',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(msg),
-                            const SizedBox(height: 8),
-                            TextField(controller: textController),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(null),
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () =>
-                                Navigator.of(context).pop(textController.text),
-                            child: const Text(
-                              'OK',
-                              style: TextStyle(
-                                color: Colors.orange,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                    return JsPromptResponse(
-                      value: result,
-                      action: result != null
-                          ? JsPromptResponseAction.CONFIRM
-                          : JsPromptResponseAction.CANCEL,
-                    );
-                  },
-                  onPermissionRequest: (controller, request) async {
-                    return await _handlePermissionRequest(controller, request);
-                  },
-                  onDownloadStartRequest: (controller, request) async {
-                    await _handleDownload(
-                      request.url.toString(),
-                      request.userAgent,
-                      request.contentDisposition,
-                      request.mimeType,
-                      request.contentLength,
-                    );
-                  },
-                ),
-              ),
-              ),
-              if (_hasLoadError || _isCrashing)
-                Positioned.fill(
-                  child: _buildSensitiveOfflineErrorUi(),
-                ),
-              // Final privacy guard: while a main-frame URL is loading, Flutter
-              // paints an opaque white surface above the WebView. The WebView is
-              // only exposed after onLoadStop verifies a trusted origin.
-              if (_navigationGuardVisible && !_hasLoadError && !_isCrashing)
-                const Positioned.fill(
-                  child: ColoredBox(color: Colors.white),
-                ),
-              if (_isDownloading)
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: DownloadProgressBar(
-                    progress: _downloadProgress,
-                    fileName: _downloadingFileName,
-                  ),
-                ),
-              if (_isInBackground)
-                Positioned.fill(
-                  child: Container(
-                    color: AppColors.primary,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.asset(
-                            'assets/images/logo.png',
-                            width: 52,
-                            height: 52,
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            AppStrings.appName,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
