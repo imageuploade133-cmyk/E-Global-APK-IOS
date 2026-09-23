@@ -870,6 +870,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
+  Widget _buildSensitiveOfflineErrorUi() {
+    return WebviewErrorOverlay(
+      title: 'Unable to connect',
+      subtitle: 'No internet connection. Please try again.',
+      isRetrying: _isUserRetrying,
+      onRetry: _handleOfflineRetryAndExit,
+    );
+  }
+
   Future<bool> _isCurrentUrlTrusted(InAppWebViewController controller) async {
     try {
       final currentUrl = await controller.getUrl();
@@ -1216,6 +1225,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       }
                       return NavigationActionPolicy.CANCEL;
                     }
+                    // End of external HTTP/HTTPS handling.
 
                     // Block file://, javascript:, data:, and unknown schemes
                     AppLogger.e(
