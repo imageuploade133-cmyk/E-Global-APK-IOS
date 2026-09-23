@@ -31,16 +31,34 @@ class MainActivity: FlutterFragmentActivity() {
             if (call.method == "vibrate") {
                 try {
                     val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                    val type = call.argument<String>("type") ?: "default"
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        vibrator.vibrate(
-                            android.os.VibrationEffect.createOneShot(
-                                60L,
-                                android.os.VibrationEffect.DEFAULT_AMPLITUDE
-                            )
-                        )
+                        val effect = when (type) {
+                            "keypress", "pin" -> {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                    android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK)
+                                } else {
+                                    android.os.VibrationEffect.createOneShot(40L, 180)
+                                }
+                            }
+                            "heavy", "impact" -> {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                    android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_HEAVY_CLICK)
+                                } else {
+                                    android.os.VibrationEffect.createOneShot(70L, 255)
+                                }
+                            }
+                            else -> android.os.VibrationEffect.createOneShot(60L, android.os.VibrationEffect.DEFAULT_AMPLITUDE)
+                        }
+                        vibrator.vibrate(effect)
                     } else {
+                        val duration = when (type) {
+                            "keypress", "pin" -> 35L
+                            "heavy", "impact" -> 70L
+                            else -> 60L
+                        }
                         @Suppress("DEPRECATION")
-                        vibrator.vibrate(60L)
+                        vibrator.vibrate(duration)
                     }
                     result.success(null)
                 } catch (e: Exception) {

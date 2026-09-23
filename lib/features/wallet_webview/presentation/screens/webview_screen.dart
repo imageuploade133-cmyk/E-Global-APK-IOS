@@ -43,7 +43,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _offlineNavigationRestoring = false;
   bool _navigationGuardVisible = false;
   bool _webViewReady = false;
-  int _mainFrameProgress = 0;
   final Set<String> _successfullyLoadedUrls = <String>{AppStrings.baseUrl};
 
   double _downloadProgress = 0.0;
@@ -222,29 +221,26 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _loadingTimeoutTimer?.cancel();
   }
 
-  Future<void> _triggerNativeHaptic() async {
+  Future<void> _triggerNativeHaptic([String type = 'default']) async {
     try {
       await const MethodChannel('com.eglobal.wallet/haptics').invokeMethod<void>(
         'vibrate',
+        {'type': type},
       );
     } catch (_) {
-      // Keep the Flutter haptic fallback for platforms where the native channel
-      // is unavailable.
       try {
-        await HapticFeedback.mediumImpact();
-        await HapticFeedback.vibrate();
+        if (type == 'pin' || type == 'keypress') {
+          await HapticFeedback.lightImpact();
+        } else if (type == 'heavy' || type == 'impact') {
+          await HapticFeedback.heavyImpact();
+        } else {
+          await HapticFeedback.mediumImpact();
+          await HapticFeedback.vibrate();
+        }
       } catch (_) {}
     }
   }
 
-  Future<void> _handleOfflineRetryAndExit() async {
-    // Give immediate native feedback, then close the app. This keeps the
-    // untrusted WebView/error URL completely hidden when there is no network.
-    await _triggerNativeHaptic();
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    if (!mounted) return;
-    SystemNavigator.pop();
-  }
 
   Future<void> _checkConnectionAndReload() async {
 
@@ -875,7 +871,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       title: 'Unable to connect',
       subtitle: 'No internet connection. Please try again.',
       isRetrying: _isUserRetrying,
-      onRetry: _handleOfflineRetryAndExit,
+      onRetry: _checkConnectionAndReload,
     );
   }
 
@@ -1021,6 +1017,71 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             }
                           `;
                           (document.head || document.documentElement).appendChild(style);
+
+                          function triggerPinHaptic() {
+                            try {
+                              if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+                                window.flutter_inappwebview.callHandler('triggerHaptic', 'pin');
+                              }
+                            } catch(e) {}
+                          }
+
+                          if (navigator && navigator.vibrate) {
+                            var origVibrate = navigator.vibrate.bind(navigator);
+                            navigator.vibrate = function(pattern) {
+                              triggerPinHaptic();
+                              return origVibrate(pattern);
+                            };
+                          }
+
+                          function isPinRelated(el) {
+                            if (!el) return false;
+                            var tag = (el.tagName || '').toLowerCase();
+                            var type = (el.type || '').toLowerCase();
+                            var id = (el.id || '').toLowerCase();
+                            var name = (el.name || '').toLowerCase();
+                            var cls = (el.className || '').toString().toLowerCase();
+                            var placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
+                            var autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+
+                            if (type === 'password' || type === 'tel' || type === 'number') {
+                              return true;
+                            }
+                            var pinKeywords = ['pin', 'otp', 'passcode', 'access', 'txn', 'transaction', 'code', 'digit', 'keypad', 'security'];
+                            for (var i = 0; i < pinKeywords.length; i++) {
+                              var kw = pinKeywords[i];
+                              if (id.includes(kw) || name.includes(kw) || cls.includes(kw) || placeholder.includes(kw) || autocomplete.includes(kw)) {
+                                return true;
+                              }
+                            }
+                            return false;
+                          }
+
+                          document.addEventListener('keydown', function(e) {
+                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
+                              triggerPinHaptic();
+                            }
+                          }, true);
+
+                          document.addEventListener('input', function(e) {
+                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
+                              triggerPinHaptic();
+                            }
+                          }, true);
+
+                          function handlePointer(e) {
+                            var target = e.target;
+                            while (target && target !== document.body) {
+                              if (isPinRelated(target) || (target.tagName === 'BUTTON' && isPinRelated(target.parentElement))) {
+                                triggerPinHaptic();
+                                break;
+                              }
+                              target = target.parentElement;
+                            }
+                          }
+
+                          document.addEventListener('touchstart', handlePointer, { passive: true, capture: true });
+                          document.addEventListener('click', handlePointer, true);
                         })();
                       """,
                       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -1083,6 +1144,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     allowUniversalAccessFromFileURLs: false,
                   ),
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
+                    final messenger = ScaffoldMessenger.of(context);
                     final uri = navigationAction.request.url;
                     if (uri == null) return NavigationActionPolicy.CANCEL;
 
@@ -1135,11 +1197,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         _navigationGuardVisible = true;
                         if (mounted) {
                           setState(() {});
+                        }
                         // Give Flutter one frame to paint the guard before allowing
                         // WebView navigation, preventing URL/error-page flashes.
                         await Future<void>.delayed(const Duration(milliseconds: 16));
+                        if (!mounted) return NavigationActionPolicy.CANCEL;
                       }
-                    }
 
                     // In offline mode, strictly block new server-changing or sensitive operations
                     if (!_isOnline) {
@@ -1158,7 +1221,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       ];
                       if (sensitiveKeywords.any((keyword) => path.contains(keyword))) {
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             const SnackBar(
                               content: Text('Active internet connection required for financial operations.'),
                               duration: Duration(seconds: 3),
@@ -1233,7 +1296,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     return NavigationActionPolicy.CANCEL;
                   }
-                  // End of the main-frame HTTP/HTTPS navigation guard.
+
+                  return NavigationActionPolicy.ALLOW;
                   },
                   onWebViewCreated: (controller) {
                     _webViewController = controller;
@@ -1245,16 +1309,30 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     pushService.setWebViewController(controller);
 
                     // Expose native haptic feedback to the wallet web app.
-                    // The existing Android/iOS native bridge provides the stronger app-style pulse.
                     controller.addJavaScriptHandler(
                       handlerName: 'triggerHaptic',
                       callback: (args) async {
-                        try {
-                          await const MethodChannel('com.eglobal.wallet/haptics')
-                              .invokeMethod<void>('vibrate');
-                        } catch (_) {
-                          // Haptics are optional and must never affect navigation.
-                        }
+                        final type = (args.isNotEmpty && args[0] is String)
+                            ? args[0] as String
+                            : 'pin';
+                        await _triggerNativeHaptic(type);
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
+                      handlerName: 'vibrate',
+                      callback: (args) async {
+                        final type = (args.isNotEmpty && args[0] is String)
+                            ? args[0] as String
+                            : 'pin';
+                        await _triggerNativeHaptic(type);
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
+                      handlerName: 'pinKeypress',
+                      callback: (args) async {
+                        await _triggerNativeHaptic('pin');
                       },
                     );
 
@@ -1392,7 +1470,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           );
 
                           final tempDir = await getTemporaryDirectory();
-                          final tempPath = '${tempDir.path}/temp_${fileName}';
+                          final tempPath = '${tempDir.path}/temp_$fileName';
                           final tempFile = File(tempPath);
                           await tempFile.writeAsBytes(bytes, flush: true);
 
@@ -1418,7 +1496,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             savedPath = publicPath;
                           } else {
                             final dirPath = await _getDownloadDirectoryPath();
-                            var filePath = '${dirPath}/${fileName}';
+                            var filePath = '$dirPath/$fileName';
                             var counter = 1;
                             final dot = fileName.lastIndexOf('.');
                             final baseName =
@@ -1428,7 +1506,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                             while (await File(filePath).exists()) {
                               filePath =
-                                  '${dirPath}/${baseName}_${counter}${extension}';
+                                  '$dirPath/${baseName}_$counter$extension';
                               counter++;
                             }
 
@@ -1615,7 +1693,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
                     _mainFrameLoading = true;
-                    _mainFrameProgress = 0;
                     _webViewReady = false;
                     // Keep an opaque Flutter surface above WebView until a trusted
                     // page has fully loaded. This prevents Chromium/WebView URLs,
@@ -1656,14 +1733,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         (AppStrings.isTrustedWalletOrigin(url) ||
                          AppStrings.isTrustedGatewayOrigin(url));
 
-                    final fullyLoadedTrustedPage =
-                        !isErrorUrl && isTrustedUrl && url != null;
+                    final fullyLoadedTrustedPage = !isErrorUrl && isTrustedUrl;
 
                     if (fullyLoadedTrustedPage) {
                       final loadedUrl = url.toString();
                       _successfullyLoadedUrls.add(loadedUrl);
                       _lastSuccessfulUrl = loadedUrl;
-                      _mainFrameProgress = 100;
                       _webViewReady = true;
                       _navigationGuardVisible = false;
                     } else {
@@ -1705,10 +1780,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _recoveryAttemptId = null;
                           _offlineNavigationInProgress = false;
                           _offlineNavigationRestoring = false;
-                          if (url != null) {
-                            _currentUrl = url.toString();
-                            _lastSuccessfulUrl = url.toString();
-                          }
+                          _currentUrl = url.toString();
+                          _lastSuccessfulUrl = url.toString();
                           setState(() {
                             _isOnline = true;
                             _hasLoadError = false;
@@ -1736,10 +1809,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _hasLoadError = true;
                         });
                       } else {
-                        if (url != null) {
-                          _currentUrl = url.toString();
-                          _lastSuccessfulUrl = url.toString();
-                        }
+                        _currentUrl = url.toString();
+                        _lastSuccessfulUrl = url.toString();
                         _offlineNavigationInProgress = false;
                         _offlineNavigationRestoring = false;
                         setState(() {
@@ -1754,7 +1825,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     await _injectSecurityAndAutofillScripts(controller);
                   },
                   onProgressChanged: (controller, progress) {
-                    _mainFrameProgress = progress.clamp(0, 100);
                     webViewNotifier.setProgress(progress / 100);
 
                     // Progress callbacks can arrive after onLoadStop on some
@@ -1810,7 +1880,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                       final attemptAtCallback = _loadAttemptId;
                       final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url?.toString();
+                      final requestUrl = request.url.toString();
 
                       _stopLoadingTimer();
                       final connectivity = ref.read(connectivityServiceProvider);
@@ -1822,7 +1892,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _loadAttemptId == attemptAtCallback &&
                           _loadingMainFrameUrl == loadingUrlAtCallback &&
                           (loadingUrlAtCallback == null ||
-                              requestUrl == null ||
                               requestUrl == loadingUrlAtCallback)) {
                         _mainFrameLoading = false;
                         _recoveryAttemptId = null;
@@ -1877,7 +1946,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                       final attemptAtCallback = _loadAttemptId;
                       final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url?.toString();
+                      final requestUrl = request.url.toString();
 
                       _stopLoadingTimer();
                       _restoreSystemUi();
@@ -1889,7 +1958,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _loadAttemptId == attemptAtCallback &&
                           _loadingMainFrameUrl == loadingUrlAtCallback &&
                           (loadingUrlAtCallback == null ||
-                              requestUrl == null ||
                               requestUrl == loadingUrlAtCallback)) {
                         _mainFrameLoading = false;
                         _recoveryAttemptId = null;
