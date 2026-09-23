@@ -1034,49 +1034,82 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             };
                           }
 
-                          function isPinRelated(el) {
-                            if (!el) return false;
-                            var tag = (el.tagName || '').toLowerCase();
-                            var type = (el.type || '').toLowerCase();
-                            var id = (el.id || '').toLowerCase();
-                            var name = (el.name || '').toLowerCase();
-                            var cls = (el.className || '').toString().toLowerCase();
-                            var placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
-                            var autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+                          function isPinScreenOrElement(target) {
+                            if (!target) return false;
 
-                            if (type === 'password' || type === 'tel' || type === 'number') {
-                              return true;
+                            var curr = target;
+                            while (curr && curr !== document.body && curr !== document.documentElement) {
+                              var tag = (curr.tagName || '').toLowerCase();
+                              var type = (curr.type || '').toLowerCase();
+                              var id = (curr.id || '').toLowerCase();
+                              var name = (curr.name || '').toLowerCase();
+                              var cls = (curr.className || '').toString().toLowerCase();
+                              var placeholder = (curr.getAttribute('placeholder') || '').toLowerCase();
+                              var role = (curr.getAttribute('role') || '').toLowerCase();
+                              var text = (curr.innerText || curr.textContent || '').toLowerCase().trim();
+
+                              if (type === 'password' || type === 'tel' || type === 'number') return true;
+
+                              var pinKeywords = [
+                                'pin', 'otp', 'passcode', 'access', 'txn', 'transaction',
+                                'code', 'digit', 'keypad', 'num-pad', 'numpad', 'security',
+                                'auth', 'keyboard', 'key'
+                              ];
+                              for (var i = 0; i < pinKeywords.length; i++) {
+                                var kw = pinKeywords[i];
+                                if (id.includes(kw) || name.includes(kw) || cls.includes(kw) || placeholder.includes(kw) || role.includes(kw)) {
+                                  return true;
+                                }
+                              }
+
+                              if (tag === 'button' || tag === 'a' || tag === 'input' || cls.includes('key') || cls.includes('btn')) {
+                                if ((text.length === 1 && text >= '0' && text <= '9') || text === 'del' || text === 'back' || text === '←' || text === 'submit' || text === 'confirm') {
+                                  return true;
+                                }
+                              }
+
+                              curr = curr.parentElement;
                             }
-                            var pinKeywords = ['pin', 'otp', 'passcode', 'access', 'txn', 'transaction', 'code', 'digit', 'keypad', 'security'];
-                            for (var i = 0; i < pinKeywords.length; i++) {
-                              var kw = pinKeywords[i];
-                              if (id.includes(kw) || name.includes(kw) || cls.includes(kw) || placeholder.includes(kw) || autocomplete.includes(kw)) {
+
+                            var pageText = (document.body ? document.body.innerText : '').toLowerCase();
+                            var pageUrl = (window.location.href || '').toLowerCase();
+
+                            var isPinScreen = pageUrl.includes('pin') ||
+                                              pageUrl.includes('transaction') ||
+                                              pageUrl.includes('transfer') ||
+                                              pageUrl.includes('verify') ||
+                                              pageText.includes('enter pin') ||
+                                              pageText.includes('access pin') ||
+                                              pageText.includes('transaction pin') ||
+                                              pageText.includes('security pin') ||
+                                              pageText.includes('enter your pin') ||
+                                              pageText.includes('confirm pin');
+
+                            if (isPinScreen) {
+                              var tTag = (target.tagName || '').toLowerCase();
+                              if (tTag === 'button' || tTag === 'input' || tTag === 'a' || tTag === 'span' || tTag === 'div') {
                                 return true;
                               }
                             }
+
                             return false;
                           }
 
                           document.addEventListener('keydown', function(e) {
-                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
+                            if (isPinScreenOrElement(e.target) || isPinScreenOrElement(document.activeElement)) {
                               triggerPinHaptic();
                             }
                           }, true);
 
                           document.addEventListener('input', function(e) {
-                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
+                            if (isPinScreenOrElement(e.target) || isPinScreenOrElement(document.activeElement)) {
                               triggerPinHaptic();
                             }
                           }, true);
 
                           function handlePointer(e) {
-                            var target = e.target;
-                            while (target && target !== document.body) {
-                              if (isPinRelated(target) || (target.tagName === 'BUTTON' && isPinRelated(target.parentElement))) {
-                                triggerPinHaptic();
-                                break;
-                              }
-                              target = target.parentElement;
+                            if (isPinScreenOrElement(e.target) || isPinScreenOrElement(document.activeElement)) {
+                              triggerPinHaptic();
                             }
                           }
 
