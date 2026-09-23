@@ -40,18 +40,18 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
 
 flutter_native_splash:
-  color: "#f67c01"
-  color_dark: "#f67c01"
-  image: "assets/images/splash_bg.png"
-  image_dark: "assets/images/splash_bg.png"
+  color: "#FFFFFF"
+  color_dark: "#FFFFFF"
+  image: "assets/images/logo.png"
+  image_dark: "assets/images/logo.png"
   fullscreen: true
   android_gravity: center
   ios_content_mode: scaleAspectFit
 
   android_12:
-    color: "#f67c01"
+    color: "#FFFFFF"
     image: "assets/images/logo.png"
-    color_dark: "#f67c01"
+    color_dark: "#FFFFFF"
     image_dark: "assets/images/logo.png"
 
   ios: true
