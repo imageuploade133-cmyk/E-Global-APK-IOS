@@ -204,7 +204,7 @@ class _PermissionsOnboardingScreenState
         ),
         actions: [
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(context).pop();
               final secureStorage = ref.read(secureStorageProvider);
               await secureStorage.write(_onboardingCompletedKey, 'true');
