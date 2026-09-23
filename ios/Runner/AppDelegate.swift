@@ -18,7 +18,7 @@ import UIKit
           result(FlutterMethodNotImplemented)
           return
         }
-        let generator = UIImpactFeedbackGenerator(style: .medium)
+        let generator = UIImpactFeedbackGenerator(style: .heavy)
         generator.prepare()
         generator.impactOccurred()
         result(nil)
