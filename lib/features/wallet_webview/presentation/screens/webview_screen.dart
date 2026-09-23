@@ -2026,14 +2026,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               ),
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
-                  child: _isOnline && !_isCrashing
-                      ? WebviewErrorOverlay(
-                          title: AppStrings.webViewLoadErrorTitle,
-                          subtitle: AppStrings.webViewLoadErrorSubtitle,
-                          isRetrying: _isUserRetrying,
-                          onRetry: _checkConnectionAndReload,
-                        )
-                      : _buildSensitiveOfflineErrorUi(),
+                  child: _buildSensitiveOfflineErrorUi(),
                 ),
               // Final privacy guard: while a main-frame URL is loading, Flutter
               // paints an opaque white surface above the WebView. The WebView is
