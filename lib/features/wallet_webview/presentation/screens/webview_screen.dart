@@ -883,14 +883,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               if (document.title && (document.title.includes('http') || document.title.includes('vercel.app') || document.title.includes('localhost') || document.title.includes('ERR_'))) {
                 document.title = 'E-Global Pay';
               }
-              var els = document.querySelectorAll('p, h1, h2, h3, h4, span, div, a');
-              els.forEach(function(el) {
-                if (el.children.length === 0 && el.textContent) {
-                  if (el.textContent.includes('e-global-197077.vercel.app') || el.textContent.includes('localhost:8080') || el.textContent.includes('net::ERR_')) {
-                    el.textContent = 'E-Global Pay Service';
-                  }
-                }
-              });
             } catch(e) {}
           }
 
@@ -934,7 +926,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           if (document.readyState !== 'complete') {
             window.addEventListener('load', applyFormSecurityAndUI);
           }
-          setInterval(sanitizeDOMUrls, 500);
         })();
       """);
     } catch (e) {
