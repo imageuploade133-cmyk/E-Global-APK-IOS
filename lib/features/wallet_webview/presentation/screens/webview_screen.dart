@@ -41,10 +41,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _connectivityInitialized = false;
   String? _pendingRedirectPath;
   String _currentUrl = AppStrings.localHostBaseUrl;
-  String _lastSuccessfulUrl = AppStrings.localHostBaseUrl;
-  String? _offlineNavigationOriginUrl;
-  bool _offlineNavigationInProgress = false;
-  bool _offlineNavigationRestoring = false;
   final Set<String> _successfullyLoadedUrls = <String>{
     AppStrings.localHostBaseUrl,
     AppStrings.baseUrl,
@@ -61,16 +57,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   int _loadAttemptId = 0;
   int? _recoveryAttemptId;
-  bool _mainFrameLoading = false;
   bool _recoveryCompleted = false;
-  String? _loadingMainFrameUrl;
 
   // Bleached Clean White constant color to eliminate layout flashes
   static const Color bleachWhite = Colors.white;
 
   bool _isInBackground = false;
   bool _hasRestoredSystemUi = false;
-  Timer? _startupGuardTimer;
 
   void _restoreSystemUi() {
     if (_hasRestoredSystemUi) return;
@@ -138,7 +131,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _connectivitySubscription?.cancel();
     _redirectSubscription?.cancel();
     _loadingTimeoutTimer?.cancel();
-    _startupGuardTimer?.cancel();
     if (_localhostServer != null && _localhostServer!.isRunning()) {
       _localhostServer!.close();
     }
@@ -220,7 +212,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         AppLogger.e('Page loading timed out');
         _restoreSystemUi();
         final wasUserRetrying = _isUserRetrying;
-        _mainFrameLoading = false;
         _recoveryAttemptId = null;
         setState(() {
           _hasLoadError = true;
@@ -264,7 +255,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final recoveryAttemptId = ++_loadAttemptId;
     _recoveryAttemptId = recoveryAttemptId;
     _recoveryCompleted = false;
-    _mainFrameLoading = true;
 
     if (mounted) {
       setState(() {
@@ -278,7 +268,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
     if (!isConnected) {
       if (mounted && _recoveryAttemptId == recoveryAttemptId) {
-        _mainFrameLoading = false;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -889,7 +878,24 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       await controller.evaluateJavascript(source: """
         (function() {
+          function sanitizeDOMUrls() {
+            try {
+              if (document.title && (document.title.includes('http') || document.title.includes('vercel.app') || document.title.includes('localhost') || document.title.includes('ERR_'))) {
+                document.title = 'E-Global Pay';
+              }
+              var els = document.querySelectorAll('p, h1, h2, h3, h4, span, div, a');
+              els.forEach(function(el) {
+                if (el.children.length === 0 && el.textContent) {
+                  if (el.textContent.includes('e-global-197077.vercel.app') || el.textContent.includes('localhost:8080') || el.textContent.includes('net::ERR_')) {
+                    el.textContent = 'E-Global Pay Service';
+                  }
+                }
+              });
+            } catch(e) {}
+          }
+
           function applyFormSecurityAndUI() {
+            sanitizeDOMUrls();
             if (!document.getElementById('eglobal-hide-scrollbars')) {
               var style = document.createElement('style');
               style.id = 'eglobal-hide-scrollbars';
@@ -928,6 +934,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           if (document.readyState !== 'complete') {
             window.addEventListener('load', applyFormSecurityAndUI);
           }
+          setInterval(sanitizeDOMUrls, 500);
         })();
       """);
     } catch (e) {
@@ -981,6 +988,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       source: """
                         (function() {
                           var PROD_API_BASE = "https://e-global-197077.vercel.app";
+
+                          // Scrubber script to 100% remove raw URLs or error strings from DOM
+                          function scrubRawUrlsFromDOM() {
+                            try {
+                              if (document.title && (document.title.includes('http') || document.title.includes('vercel.app') || document.title.includes('localhost') || document.title.includes('ERR_'))) {
+                                document.title = 'E-Global Pay';
+                              }
+                            } catch(e) {}
+                          }
 
                           // Intercept window.fetch to route relative /api/ requests to live Vercel backend
                           if (window.fetch) {
@@ -1043,6 +1059,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           // Safety fallback: Redirect unauthenticated static launch to /auth/login
                           function enforceLoginRedirectIfUnauthenticated() {
                             try {
+                              scrubRawUrlsFromDOM();
                               var path = window.location.pathname || '';
                               if (path === '/' || path === '/index.html' || path === '') {
                                 var hasSession = false;
@@ -1176,6 +1193,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     allowFileAccessFromFileURLs: false,
                     allowUniversalAccessFromFileURLs: false,
                   ),
+                  onTitleChanged: (controller, title) {
+                    if (title != null && (title.contains('http') || title.contains('vercel.app') || title.contains('localhost') || title.contains('net::ERR_'))) {
+                      controller.evaluateJavascript(source: "document.title = 'E-Global Pay';");
+                    }
+                  },
                   shouldOverrideUrlLoading: (controller, navigationAction) async {
                     final messenger = ScaffoldMessenger.of(context);
                     final uri = navigationAction.request.url;
@@ -1185,28 +1207,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final urlString = uri.toString();
                     final path = uri.path.toLowerCase();
 
+                    final connectivity = ref.read(connectivityServiceProvider);
+                    final isConnectedNow = await connectivity.isConnected;
+                    if (mounted && _isOnline != isConnectedNow) {
+                      setState(() => _isOnline = isConnectedNow);
+                    }
+
                     if (navigationAction.isForMainFrame == true &&
                         (scheme == 'http' || scheme == 'https')) {
-                      final connectivity = ref.read(connectivityServiceProvider);
-                      final isConnectedNow = await connectivity.isConnected;
-                      if (mounted && _isOnline != isConnectedNow) {
-                        setState(() => _isOnline = isConnectedNow);
-                      }
-
-                      final normalizedTarget = uri.toString();
-                      final isPreviouslyLoaded =
-                          _successfullyLoadedUrls.contains(normalizedTarget);
-                      final isHistoryNavigation =
-                          navigationAction.navigationType ==
-                          NavigationType.BACK_FORWARD;
-
-                      if (!isConnectedNow &&
-                          !isPreviouslyLoaded &&
-                          !isHistoryNavigation &&
-                          !AppStrings.isTrustedWalletOrigin(uri)) {
-                        _offlineNavigationOriginUrl = _lastSuccessfulUrl;
-                        _offlineNavigationInProgress = false;
-                        _offlineNavigationRestoring = false;
+                      if (!isConnectedNow) {
                         _stopLoadingTimer();
                         if (mounted) {
                           setState(() {
@@ -1217,7 +1226,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         }
                         return NavigationActionPolicy.CANCEL;
                       }
-
 
                     if (!_isOnline) {
                       final sensitiveKeywords = [
@@ -1683,14 +1691,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
-                    _mainFrameLoading = true;
-                    _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
                       _recoveryCompleted = false;
                     }
 
-                    if (url != null && !_offlineNavigationInProgress) {
+                    if (url != null) {
                       _currentUrl = url.toString();
                     }
                     _startLoadingTimer();
@@ -1703,8 +1709,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                     final completedAttemptId = _loadAttemptId;
                     final completedRecoveryId = _recoveryAttemptId;
-                    _mainFrameLoading = false;
-                    _loadingMainFrameUrl = null;
 
                     final urlString = url?.toString().toLowerCase() ?? '';
                     final isErrorUrl = urlString.isEmpty ||
@@ -1721,28 +1725,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     if (fullyLoadedTrustedPage) {
                       final loadedUrl = url.toString();
                       _successfullyLoadedUrls.add(loadedUrl);
-                      _lastSuccessfulUrl = loadedUrl;
                     }
 
                     final connectivity = ref.read(connectivityServiceProvider);
                     final isConnected = await connectivity.isConnected;
-
-                    if (mounted &&
-                        _offlineNavigationInProgress &&
-                        !_offlineNavigationRestoring &&
-                        !isErrorUrl &&
-                        isTrustedUrl) {
-                      _offlineNavigationInProgress = false;
-                      _offlineNavigationOriginUrl = null;
-                      _currentUrl = url.toString();
-                      _lastSuccessfulUrl = url.toString();
-                      setState(() {
-                        _isOnline = false;
-                        _hasLoadError = false;
-                        _isCrashing = false;
-                        _isUserRetrying = false;
-                      });
-                    }
 
                     if (mounted) {
                       final isValidRecovery = completedRecoveryId != null &&
@@ -1755,10 +1741,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         if (isValidRecovery) {
                           _recoveryCompleted = true;
                           _recoveryAttemptId = null;
-                          _offlineNavigationInProgress = false;
-                          _offlineNavigationRestoring = false;
                           _currentUrl = url.toString();
-                          _lastSuccessfulUrl = url.toString();
                           setState(() {
                             _hasLoadError = false;
                             _isCrashing = false;
@@ -1784,16 +1767,13 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         });
                       } else {
                         _currentUrl = url.toString();
-                        _lastSuccessfulUrl = url.toString();
-                        _offlineNavigationInProgress = false;
-                        _offlineNavigationRestoring = false;
                         setState(() {
                           _isOnline = isConnected;
                         });
                       }
                     }
 
-                      _restoreSystemUi();
+                    _restoreSystemUi();
                     await _injectSecurityAndAutofillScripts(controller);
                   },
                   onProgressChanged: (controller, progress) {
@@ -1805,53 +1785,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if (request.isForMainFrame == true) {
                       _restoreSystemUi();
-
-                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
-                        _offlineNavigationRestoring = true;
-                        _offlineNavigationInProgress = false;
-                        _stopLoadingTimer();
-                        final previousUrl = _offlineNavigationOriginUrl;
-                        if (previousUrl != null) {
-                          try {
-                            if (await controller.canGoBack()) {
-                              await controller.goBack();
-                              return;
-                            }
-                            await controller.loadUrl(
-                              urlRequest: URLRequest(url: WebUri(previousUrl)),
-                            );
-                            return;
-                          } catch (e) {
-                            AppLogger.e('Failed to restore page', e);
-                          }
-                        }
-                        if (mounted) {
-                          setState(() {
-                            _hasLoadError = true;
-                            _isUserRetrying = false;
-                          });
-                        }
-                        return;
-                      }
-
-                      if (_isUserRetrying) return;
-                      if (!_mainFrameLoading) return;
-
-                      final attemptAtCallback = _loadAttemptId;
-                      final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url.toString();
-
                       _stopLoadingTimer();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
 
-                      if (mounted &&
-                          _mainFrameLoading &&
-                          _loadAttemptId == attemptAtCallback &&
-                          _loadingMainFrameUrl == loadingUrlAtCallback &&
-                          (loadingUrlAtCallback == null ||
-                              requestUrl == loadingUrlAtCallback)) {
-                        _mainFrameLoading = false;
+                      if (mounted) {
                         _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
@@ -1869,53 +1807,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
                       _restoreSystemUi();
-                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
-                        _offlineNavigationRestoring = true;
-                        _offlineNavigationInProgress = false;
-                        _stopLoadingTimer();
-                        final previousUrl = _offlineNavigationOriginUrl;
-                        if (previousUrl != null) {
-                          try {
-                            if (await controller.canGoBack()) {
-                              await controller.goBack();
-                              return;
-                            }
-                            await controller.loadUrl(
-                              urlRequest: URLRequest(url: WebUri(previousUrl)),
-                            );
-                            return;
-                          } catch (e) {
-                            AppLogger.e('Failed to restore page', e);
-                          }
-                        }
-                        if (mounted) {
-                          setState(() {
-                            _hasLoadError = true;
-                            _isUserRetrying = false;
-                          });
-                        }
-                        return;
-                      }
-
-                      if (_isUserRetrying) return;
-                      if (!_mainFrameLoading) return;
-
-                      final attemptAtCallback = _loadAttemptId;
-                      final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url.toString();
-
                       _stopLoadingTimer();
-                      _restoreSystemUi();
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
 
-                      if (mounted &&
-                          _mainFrameLoading &&
-                          _loadAttemptId == attemptAtCallback &&
-                          _loadingMainFrameUrl == loadingUrlAtCallback &&
-                          (loadingUrlAtCallback == null ||
-                              requestUrl == loadingUrlAtCallback)) {
-                        _mainFrameLoading = false;
+                      if (mounted) {
                         _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
