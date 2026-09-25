@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:wallet/core/constants/app_colors.dart';
 import 'package:wallet/features/home/presentation/screens/native_home_screen.dart';
+import 'package:wallet/features/wallet/presentation/screens/native_history_screen.dart';
+import 'package:wallet/features/profile/presentation/screens/native_profile_screen.dart';
 
 class MainShellScreen extends StatefulWidget {
   const MainShellScreen({super.key});
@@ -14,9 +16,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   final List<Widget> _pages = const [
     NativeHomeScreen(),
-    _PlaceholderTab(title: 'Activity History'),
-    _PlaceholderTab(title: 'Virtual Cards'),
-    _PlaceholderTab(title: 'Account Settings'),
+    NativeHistoryScreen(),
+    _CardsTabStub(),
+    NativeProfileScreen(),
   ];
 
   @override
@@ -63,15 +65,14 @@ class _MainShellScreenState extends State<MainShellScreen> {
   }
 }
 
-class _PlaceholderTab extends StatelessWidget {
-  final String title;
-  const _PlaceholderTab({required this.title});
+class _CardsTabStub extends StatelessWidget {
+  const _CardsTabStub();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Virtual Cards', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
@@ -79,16 +80,16 @@ class _PlaceholderTab extends StatelessWidget {
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.build_circle_outlined, size: 64, color: AppColors.primary),
-            const SizedBox(height: 16),
+          children: const [
+            Icon(Icons.credit_card, size: 64, color: AppColors.primary),
+            SizedBox(height: 16),
             Text(
-              '$title Screen',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              'Virtual Dollar & NGN Cards',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Native Flutter Migration In Progress',
+            SizedBox(height: 8),
+            Text(
+              'Native Cards Migration Scheduled for Phase 4',
               style: TextStyle(color: Colors.grey),
             ),
           ],

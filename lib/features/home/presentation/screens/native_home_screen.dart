@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:wallet/core/constants/app_colors.dart';
+import 'package:wallet/features/auth/data/models/user_model.dart';
 import 'package:wallet/features/wallet/data/models/wallet_model.dart';
 import 'package:wallet/features/wallet/data/models/transaction_model.dart';
 import 'package:wallet/features/wallet/data/repositories/wallet_repository.dart';
@@ -16,6 +17,7 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
   bool _isLoading = true;
   bool _hideBalance = false;
   String _selectedCurrency = 'NGN';
+  UserModel? _user;
   WalletModel _wallet = const WalletModel();
   List<TransactionModel> _recentTransactions = [];
 
@@ -27,11 +29,13 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
 
   Future<void> _loadCachedDataAndSync() async {
     // 1. Render cached safe data instantly without waiting on network
+    final cachedUser = await _walletRepository.getCachedUser();
     final cachedWallet = await _walletRepository.getCachedWallet();
     final cachedTxs = await _walletRepository.getCachedTransactions();
 
     if (mounted) {
       setState(() {
+        if (cachedUser != null) _user = cachedUser;
         if (cachedWallet != null) _wallet = cachedWallet;
         _recentTransactions = cachedTxs;
         _isLoading = false;
@@ -40,10 +44,15 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
 
     // 2. Perform silent background API synchronization
     try {
+      final remoteUser = await _walletRepository.fetchUserProfileFromApi();
       final remoteWallet = await _walletRepository.fetchWalletFromApi();
-      if (mounted && remoteWallet != null) {
+      final remoteTxs = await _walletRepository.fetchTransactionsFromApi();
+
+      if (mounted) {
         setState(() {
-          _wallet = remoteWallet;
+          if (remoteUser != null) _user = remoteUser;
+          if (remoteWallet != null) _wallet = remoteWallet;
+          if (remoteTxs.isNotEmpty) _recentTransactions = remoteTxs;
         });
       }
     } catch (_) {}
@@ -58,6 +67,8 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
     final String currencySymbol = _selectedCurrency == 'NGN'
         ? '₦'
         : (_selectedCurrency == 'USD' ? '\$' : 'CFA ');
+
+    final String displayName = _user?.name.toUpperCase() ?? 'VALUED CAPTAIN';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
@@ -75,8 +86,8 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
+              children: [
+                const Text(
                   'WELCOME BACK',
                   style: TextStyle(
                     fontSize: 9,
@@ -86,8 +97,8 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
                   ),
                 ),
                 Text(
-                  'VALUED CAPTAIN',
-                  style: TextStyle(
+                  displayName,
+                  style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: Colors.black,
