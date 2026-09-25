@@ -40,11 +40,15 @@ Future<void> _initializeFirebaseInBackground() async {
 }
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+
+  // Keep the native splash visible until the wallet WebView has actually
+  // rendered its first successful page. This prevents a white Flutter frame
+  // from appearing between native startup and the local wallet bundle.
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   // Never await Firebase, secure storage, permissions, connectivity, or
-  // network work before runApp(). The native splash must be released by
-  // Flutter's first frame even when the device is offline.
+  // network work before runApp().
   unawaited(_initializeFirebaseInBackground());
 
   runApp(
@@ -96,14 +100,8 @@ class _StartupRouterState extends State<StartupRouter> {
   @override
   void initState() {
     super.initState();
-    // Explicitly release any generated native splash after the first Flutter
-    // frame. This is safe even when no preserve() call is active and prevents
-    // a stale native splash from masking the Flutter/WebView UI.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        FlutterNativeSplash.remove();
-      } catch (_) {}
-    });
+    // Do not remove the native splash here. The WebView screen removes it
+    // only after the local wallet page reaches a successful load state.
     unawaited(_resolveStartupRoute());
   }
 
