@@ -1036,6 +1036,33 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           `;
                           (document.head || document.documentElement).appendChild(style);
 
+                          // Safety fallback: Redirect unauthenticated static launch to /auth/login
+                          function enforceLoginRedirectIfUnauthenticated() {
+                            try {
+                              var path = window.location.pathname;
+                              if (path === '/' || path === '/index.html' || path === '') {
+                                var hasSession = false;
+                                for (var i = 0; i < localStorage.length; i++) {
+                                  var k = localStorage.key(i) || '';
+                                  if (k.includes('firebase:authUser') || k.includes('user_session') || k.includes('auth_token')) {
+                                    hasSession = true;
+                                    break;
+                                  }
+                                }
+                                if (!hasSession) {
+                                  window.location.replace('/auth/login');
+                                }
+                              }
+                            } catch(e) {}
+                          }
+
+                          if (document.readyState === 'loading') {
+                            document.addEventListener('DOMContentLoaded', enforceLoginRedirectIfUnauthenticated);
+                          } else {
+                            enforceLoginRedirectIfUnauthenticated();
+                          }
+                          setTimeout(enforceLoginRedirectIfUnauthenticated, 800);
+
                           function triggerPinHaptic() {
                             try {
                               if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
