@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'core/utils/logger.dart';
@@ -12,8 +11,6 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
 import 'features/auth/presentation/screens/biometric_login_screen.dart';
-import 'features/auth/presentation/screens/native_login_screen.dart';
-import 'features/shell/presentation/screens/main_shell_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
 import 'core/security/secure_storage_service.dart';
 
@@ -68,8 +65,7 @@ class EGlobalWalletApp extends ConsumerWidget {
       themeMode: themeMode,
       home: const StartupRouter(),
       routes: {
-        '/home': (context) => const MainShellScreen(),
-        '/login': (context) => const NativeLoginScreen(),
+        '/home': (context) => const WebviewScreen(),
         '/webview': (context) => const WebviewScreen(),
         '/permissions': (context) => const PermissionsOnboardingScreen(),
         '/biometric_login': (context) => const BiometricLoginScreen(),
@@ -108,60 +104,47 @@ class _StartupRouterState extends State<StartupRouter> {
     try {
       final storage = SecureStorageServiceImpl();
 
-      final completedFuture = storage.read(_onboardingKey);
+      final completedStr = await storage.read(_onboardingKey);
+      final completed = completedStr == 'true';
+
+      if (completed) {
+        if (mounted) {
+          setState(() => _route = '/webview');
+        }
+        return;
+      }
+
       final permissionFutures = <Future<PermissionStatus>>[
         Permission.camera.status,
         Permission.microphone.status,
         Permission.locationWhenInUse.status,
       ];
 
-      final values = await Future.wait<dynamic>([
-        completedFuture,
-        ...permissionFutures,
-      ]).timeout(const Duration(milliseconds: 1500));
-
-      final completed = values[0] == 'true';
-      final statuses = values
-          .skip(1)
-          .cast<PermissionStatus>()
-          .toList(growable: false);
+      final statuses = await Future.wait(permissionFutures)
+          .timeout(const Duration(milliseconds: 1500));
 
       final requiredPermissionsGranted = statuses.every(
         (status) =>
             status.isGranted || status.isLimited || status.isRestricted,
       );
 
-      if (!completed && !requiredPermissionsGranted) {
+      if (requiredPermissionsGranted) {
+        await storage.write(_onboardingKey, 'true');
         if (mounted) {
-          setState(() => _route = '/permissions');
-        }
-        return;
-      }
-
-      // Check Firebase Auth or local secure token for session state safely
-      User? currentUser;
-      try {
-        currentUser = FirebaseAuth.instance.currentUser;
-      } catch (_) {}
-
-      final savedCredentials = await storage.read('secure_wallet_credentials');
-
-      if (currentUser != null || (savedCredentials != null && savedCredentials.isNotEmpty)) {
-        if (mounted) {
-          setState(() => _route = '/home');
+          setState(() => _route = '/webview');
         }
       } else {
         if (mounted) {
-          setState(() => _route = '/login');
+          setState(() => _route = '/permissions');
         }
       }
     } catch (e) {
       AppLogger.e(
-        'Startup route resolution timed out; mounting login screen.',
+        'Startup route resolution timed out; mounting webview screen.',
         e,
       );
       if (mounted) {
-        setState(() => _route = '/login');
+        setState(() => _route = '/webview');
       }
     }
   }
@@ -174,15 +157,7 @@ class _StartupRouterState extends State<StartupRouter> {
       return const PermissionsOnboardingScreen();
     }
 
-    if (route == '/home') {
-      return const MainShellScreen();
-    }
-
-    if (route == '/login') {
-      return const NativeLoginScreen();
-    }
-
-    if (route == '/webview') {
+    if (route == '/webview' || route == '/home') {
       return const WebviewScreen();
     }
 
