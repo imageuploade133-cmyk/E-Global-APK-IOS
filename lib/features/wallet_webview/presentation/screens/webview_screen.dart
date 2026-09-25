@@ -119,16 +119,16 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         await _localhostServer!.start();
       }
 
+      // Non-blocking background check for remote bundle updates
+      updateService.checkForUpdatesInBackground();
+    } catch (e) {
+      AppLogger.e('Failed to start InAppLocalhostServer', e);
+    } finally {
       if (mounted) {
         setState(() {
           _localhostServerStarted = true;
         });
       }
-
-      // Non-blocking background check for remote bundle updates
-      updateService.checkForUpdatesInBackground();
-    } catch (e) {
-      AppLogger.e('Failed to start InAppLocalhostServer', e);
     }
   }
 
@@ -970,7 +970,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   bottom: true,
                   child: InAppWebView(
                   initialUrlRequest: URLRequest(
-                    url: WebUri(AppStrings.localHostBaseUrl),
+                    url: WebUri(
+                      (_localhostServer != null && _localhostServer!.isRunning()) || _localhostServerStarted
+                          ? AppStrings.localHostBaseUrl
+                          : AppStrings.baseUrl,
+                    ),
                   ),
                   initialUserScripts: UnmodifiableListView<UserScript>([
                     UserScript(
@@ -1039,7 +1043,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           // Safety fallback: Redirect unauthenticated static launch to /auth/login
                           function enforceLoginRedirectIfUnauthenticated() {
                             try {
-                              var path = window.location.pathname;
+                              var path = window.location.pathname || '';
                               if (path === '/' || path === '/index.html' || path === '') {
                                 var hasSession = false;
                                 for (var i = 0; i < localStorage.length; i++) {
@@ -1050,7 +1054,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                                   }
                                 }
                                 if (!hasSession) {
-                                  window.location.replace('/auth/login');
+                                  window.location.replace('/auth/login/');
                                 }
                               }
                             } catch(e) {}
@@ -1061,7 +1065,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           } else {
                             enforceLoginRedirectIfUnauthenticated();
                           }
-                          setTimeout(enforceLoginRedirectIfUnauthenticated, 800);
+                          setTimeout(enforceLoginRedirectIfUnauthenticated, 300);
 
                           function triggerPinHaptic() {
                             try {

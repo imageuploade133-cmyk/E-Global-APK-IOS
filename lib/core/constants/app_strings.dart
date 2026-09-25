@@ -3,6 +3,8 @@ class AppStrings {
   static const String baseUrl = 'https://e-global-197077.vercel.app/';
   static const String bundleVersion = '1.0.0';
   static const String localHostBaseUrl = 'http://localhost:8080/';
+  static const String localHostLoginUrl = 'http://localhost:8080/auth/login/';
+  static const String defaultLoginUrl = 'https://e-global-197077.vercel.app/auth/login/';
   static const String packageIdentifier = 'com.eglobal.wallet';
   static const String biometricKey = 'biometric_enabled';
   static const String credentialsKey = 'secure_wallet_credentials';
