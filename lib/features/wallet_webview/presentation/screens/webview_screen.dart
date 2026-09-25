@@ -45,8 +45,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _offlineNavigationOriginUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
-  bool _navigationGuardVisible = false;
-  bool _webViewReady = false;
   final Set<String> _successfullyLoadedUrls = <String>{
     AppStrings.localHostBaseUrl,
     AppStrings.baseUrl,
@@ -272,7 +270,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       setState(() {
         _isUserRetrying = true;
         _hasLoadError = false;
-        _navigationGuardVisible = true;
       });
     }
 
@@ -1190,14 +1187,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         return NavigationActionPolicy.CANCEL;
                       }
 
-                      if (isPreviouslyLoaded || isHistoryNavigation) {
-                        _navigationGuardVisible = true;
-                        if (mounted) {
-                          setState(() {});
-                        }
-                        await Future<void>.delayed(const Duration(milliseconds: 16));
-                        if (!mounted) return NavigationActionPolicy.CANCEL;
-                      }
 
                     if (!_isOnline) {
                       final sensitiveKeywords = [
@@ -1664,8 +1653,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
                     _mainFrameLoading = true;
-                    _webViewReady = false;
-                    _navigationGuardVisible = true;
                     _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
@@ -1704,11 +1691,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final loadedUrl = url.toString();
                       _successfullyLoadedUrls.add(loadedUrl);
                       _lastSuccessfulUrl = loadedUrl;
-                      _webViewReady = true;
-                      _navigationGuardVisible = false;
-                    } else {
-                      _webViewReady = false;
-                      _navigationGuardVisible = true;
                     }
 
                     final connectivity = ref.read(connectivityServiceProvider);
@@ -1780,9 +1762,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       }
                     }
 
-                    if (_webViewReady) {
                       _restoreSystemUi();
-                    }
                     await _injectSecurityAndAutofillScripts(controller);
                   },
                   onProgressChanged: (controller, progress) {
@@ -1793,8 +1773,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       'WebView error handled: ${error.description}',
                     );
                     if (request.isForMainFrame == true) {
-                      _webViewReady = false;
-                      _navigationGuardVisible = false;
                       _restoreSystemUi();
 
                       if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
@@ -1817,7 +1795,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           }
                         }
                         if (mounted) {
-                          _navigationGuardVisible = false;
                           setState(() {
                             _hasLoadError = true;
                             _isUserRetrying = false;
@@ -1860,8 +1837,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
                     if ((request.isForMainFrame == true) &&
                         (errorResponse.statusCode ?? 200) >= 400) {
-                      _webViewReady = false;
-                      _navigationGuardVisible = false;
                       _restoreSystemUi();
                       if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
                         _offlineNavigationRestoring = true;
@@ -2077,10 +2052,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               if (_hasLoadError || _isCrashing)
                 Positioned.fill(
                   child: _buildSensitiveOfflineErrorUi(),
-                ),
-              if (_navigationGuardVisible && !_hasLoadError && !_isCrashing)
-                const Positioned.fill(
-                  child: ColoredBox(color: Colors.white),
                 ),
               if (_isDownloading)
                 Align(
