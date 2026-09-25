@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -58,6 +59,15 @@ class EGlobalWalletApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Explicitly release any generated native splash after Flutter has drawn
+    // its first frame. This is safe even when no preserve() call is active,
+    // and prevents a stale native splash from masking the Flutter/WebView UI.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        FlutterNativeSplash.remove();
+      } catch (_) {}
+    });
+
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp(
