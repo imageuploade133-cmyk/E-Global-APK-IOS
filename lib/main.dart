@@ -104,38 +104,39 @@ class _StartupRouterState extends State<StartupRouter> {
     try {
       final storage = SecureStorageServiceImpl();
 
-      final completedFuture = storage.read(_onboardingKey);
+      final completedStr = await storage.read(_onboardingKey);
+      final completed = completedStr == 'true';
+
+      if (completed) {
+        if (mounted) {
+          setState(() => _route = '/webview');
+        }
+        return;
+      }
+
       final permissionFutures = <Future<PermissionStatus>>[
         Permission.camera.status,
         Permission.microphone.status,
         Permission.locationWhenInUse.status,
       ];
 
-      final values = await Future.wait<dynamic>([
-        completedFuture,
-        ...permissionFutures,
-      ]).timeout(const Duration(milliseconds: 1500));
-
-      final completed = values[0] == 'true';
-      final statuses = values
-          .skip(1)
-          .cast<PermissionStatus>()
-          .toList(growable: false);
+      final statuses = await Future.wait(permissionFutures)
+          .timeout(const Duration(milliseconds: 1500));
 
       final requiredPermissionsGranted = statuses.every(
         (status) =>
             status.isGranted || status.isLimited || status.isRestricted,
       );
 
-      if (!completed && !requiredPermissionsGranted) {
+      if (requiredPermissionsGranted) {
+        await storage.write(_onboardingKey, 'true');
+        if (mounted) {
+          setState(() => _route = '/webview');
+        }
+      } else {
         if (mounted) {
           setState(() => _route = '/permissions');
         }
-        return;
-      }
-
-      if (mounted) {
-        setState(() => _route = '/webview');
       }
     } catch (e) {
       AppLogger.e(
