@@ -4,6 +4,10 @@ import 'package:wallet/features/auth/data/models/user_model.dart';
 import 'package:wallet/features/wallet/data/models/wallet_model.dart';
 import 'package:wallet/features/wallet/data/models/transaction_model.dart';
 import 'package:wallet/features/wallet/data/repositories/wallet_repository.dart';
+import 'package:wallet/features/wallet/presentation/widgets/native_transfer_modal.dart';
+import 'package:wallet/features/wallet/presentation/widgets/native_deposit_modal.dart';
+import 'package:wallet/features/wallet/presentation/widgets/native_vtu_modal.dart';
+import 'package:wallet/features/wallet/presentation/widgets/native_bills_modal.dart';
 
 class NativeHomeScreen extends StatefulWidget {
   const NativeHomeScreen({super.key});
@@ -56,6 +60,22 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
         });
       }
     } catch (_) {}
+  }
+
+  void _openDepositModal() {
+    NativeDepositModal.show(context, user: _user);
+  }
+
+  void _openTransferModal() {
+    NativeTransferModal.show(context, onSuccess: _loadCachedDataAndSync);
+  }
+
+  void _openVtuModal(String type) {
+    NativeVtuModal.show(context, initialType: type, onSuccess: _loadCachedDataAndSync);
+  }
+
+  void _openBillsModal(String category) {
+    NativeBillsModal.show(context, billCategory: category, onSuccess: _loadCachedDataAndSync);
   }
 
   @override
@@ -235,7 +255,7 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () {},
+                            onPressed: _openDepositModal,
                             icon: const Icon(Icons.add_circle_outline, size: 18),
                             label: const Text('Add Money', style: TextStyle(fontWeight: FontWeight.bold)),
                             style: ElevatedButton.styleFrom(
@@ -249,7 +269,7 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () {},
+                            onPressed: _openTransferModal,
                             icon: const Icon(Icons.send_outlined, size: 18),
                             label: const Text('Transfer', style: TextStyle(fontWeight: FontWeight.bold)),
                             style: ElevatedButton.styleFrom(
@@ -286,15 +306,55 @@ class _NativeHomeScreenState extends State<NativeHomeScreen> {
                 crossAxisCount: 4,
                 mainAxisSpacing: 16,
                 crossAxisSpacing: 12,
-                children: const [
-                  _QuickServiceItem(icon: Icons.phone_android, label: 'Airtime', color: Colors.blue),
-                  _QuickServiceItem(icon: Icons.wifi, label: 'Data', color: Colors.green),
-                  _QuickServiceItem(icon: Icons.lightbulb_outline, label: 'Electricity', color: Colors.orange),
-                  _QuickServiceItem(icon: Icons.tv, label: 'Cable TV', color: Colors.purple),
-                  _QuickServiceItem(icon: Icons.trending_up, label: 'Invest', color: Colors.teal),
-                  _QuickServiceItem(icon: Icons.credit_card, label: 'Cards', color: Colors.indigo),
-                  _QuickServiceItem(icon: Icons.home_work_outlined, label: 'Estate', color: Colors.brown),
-                  _QuickServiceItem(icon: Icons.grid_view, label: 'More', color: Colors.blueGrey),
+                children: [
+                  _QuickServiceItem(
+                    icon: Icons.phone_android,
+                    label: 'Airtime',
+                    color: Colors.blue,
+                    onTap: () => _openVtuModal('airtime'),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.wifi,
+                    label: 'Data',
+                    color: Colors.green,
+                    onTap: () => _openVtuModal('data'),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.lightbulb_outline,
+                    label: 'Electricity',
+                    color: Colors.orange,
+                    onTap: () => _openBillsModal('electricity'),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.tv,
+                    label: 'Cable TV',
+                    color: Colors.purple,
+                    onTap: () => _openBillsModal('cable'),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.trending_up,
+                    label: 'Invest',
+                    color: Colors.teal,
+                    onTap: () => _openTransferModal(),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.credit_card,
+                    label: 'Cards',
+                    color: Colors.indigo,
+                    onTap: () => _openTransferModal(),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.home_work_outlined,
+                    label: 'Estate',
+                    color: Colors.brown,
+                    onTap: () => _openTransferModal(),
+                  ),
+                  _QuickServiceItem(
+                    icon: Icons.grid_view,
+                    label: 'More',
+                    color: Colors.blueGrey,
+                    onTap: () => _openTransferModal(),
+                  ),
                 ],
               ),
 
@@ -416,17 +476,19 @@ class _QuickServiceItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
+  final VoidCallback onTap;
 
   const _QuickServiceItem({
     required this.icon,
     required this.label,
     required this.color,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {},
+      onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
