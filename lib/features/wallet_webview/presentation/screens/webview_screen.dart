@@ -212,6 +212,36 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         throw StateError('InAppLocalhostServer failed to start.');
       }
 
+      // Verify the exact URL the WebView will load. This prevents a bound but
+      // unusable localhost server from producing another white screen.
+      final probeUri = Uri.parse(AppStrings.localHostBaseUrl);
+      Object? lastProbeError;
+      var servedIndex = false;
+      for (var attempt = 0; attempt < 10; attempt++) {
+        try {
+          final response = await http
+              .get(probeUri)
+              .timeout(const Duration(milliseconds: 500));
+          if (response.statusCode == 200 &&
+              response.body.toLowerCase().contains('<html')) {
+            servedIndex = true;
+            break;
+          }
+          lastProbeError = StateError(
+            'Localhost probe returned HTTP ${response.statusCode}',
+          );
+        } catch (e) {
+          lastProbeError = e;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+
+      if (!servedIndex) {
+        throw StateError(
+          'Localhost server is running but index.html is not being served: $lastProbeError',
+        );
+      }
+
       if (mounted) {
         setState(() {
           _localhostServerStarted = true;
@@ -1039,7 +1069,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    if (!_connectivityInitialized || !_localhostServerStarted) {
+    if (!_localhostServerStarted) {
       return const Scaffold(
         backgroundColor: bleachWhite,
         body: ColoredBox(color: bleachWhite),
