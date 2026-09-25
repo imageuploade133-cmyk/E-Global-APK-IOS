@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:collection';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,13 +103,102 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _initPushNotifications();
   }
 
+  Future<String?> _prepareBundledWebRoot() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final webRoot = Directory(
+        '${appDir.path}/eglobal_builtin_web_v${AppStrings.bundleVersion}',
+      );
+
+      final indexFile = File('${webRoot.path}/index.html');
+      final markerFile = File('${webRoot.path}/.bundle_ready');
+
+      if (await indexFile.exists() && await markerFile.exists()) {
+        AppLogger.i('Using previously extracted built-in web bundle: ${webRoot.path}');
+        return webRoot.path;
+      }
+
+      if (await webRoot.exists()) {
+        await webRoot.delete(recursive: true);
+      }
+      await webRoot.create(recursive: true);
+
+      // Flutter packages assets into the APK/IPA; "assets/web" is not a
+      // filesystem directory on the device. InAppLocalhostServer requires a
+      // real directory, so materialize the bundled web app first.
+      final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+      final assets = manifest
+          .listAssets()
+          .where((asset) => asset.startsWith('assets/web/'))
+          .toList(growable: false);
+
+      if (assets.isEmpty) {
+        throw StateError('No assets/web files were found in the Flutter asset manifest.');
+      }
+
+      var extracted = 0;
+      for (final assetPath in assets) {
+        final relativePath = assetPath.substring('assets/web/'.length);
+        if (relativePath.isEmpty ||
+            relativePath.contains('..') ||
+            relativePath.startsWith('/')) {
+          continue;
+        }
+
+        final output = File('${webRoot.path}/${relativePath.replaceAll('\\\\', '/')}');
+        await output.parent.create(recursive: true);
+
+        final data = await rootBundle.load(assetPath);
+        await output.writeAsBytes(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+          flush: true,
+        );
+        extracted++;
+      }
+
+      if (!await indexFile.exists()) {
+        throw StateError(
+          'Built-in web bundle extraction completed but index.html is missing.',
+        );
+      }
+
+      await markerFile.writeAsString(
+        'version=${AppStrings.bundleVersion}\nfiles=$extracted\n',
+        flush: true,
+      );
+
+      AppLogger.i(
+        'Materialized built-in web bundle: $extracted files at ${webRoot.path}',
+      );
+      return webRoot.path;
+    } catch (e) {
+      AppLogger.e('Failed to materialize built-in web bundle', e);
+      return null;
+    }
+  }
+
   Future<void> _startLocalhostServer() async {
     try {
       final updateService = BundleUpdateService();
       final activeBundlePath = await updateService.getActiveBundlePath();
 
-      final documentRoot = activeBundlePath ?? 'assets/web';
-      AppLogger.i('InAppLocalhostServer starting with documentRoot: $documentRoot');
+      // A downloaded/verified bundle is already a real filesystem directory.
+      // The built-in bundle needs extraction from Flutter's asset container.
+      final documentRoot =
+          activeBundlePath ?? await _prepareBundledWebRoot();
+
+      if (documentRoot == null || documentRoot.isEmpty) {
+        throw StateError('No usable wallet web bundle is available.');
+      }
+
+      final indexFile = File('$documentRoot/index.html');
+      if (!await indexFile.exists()) {
+        throw StateError('Wallet web bundle is missing index.html.');
+      }
+
+      AppLogger.i(
+        'InAppLocalhostServer starting with filesystem documentRoot: $documentRoot',
+      );
 
       _localhostServer = InAppLocalhostServer(
         documentRoot: documentRoot,
@@ -119,14 +209,55 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         await _localhostServer!.start();
       }
 
-      // Non-blocking background check for remote bundle updates
-      updateService.checkForUpdatesInBackground();
-    } catch (e) {
-      AppLogger.e('Failed to start InAppLocalhostServer', e);
-    } finally {
+      if (!_localhostServer!.isRunning()) {
+        throw StateError('InAppLocalhostServer failed to start.');
+      }
+
+      // Verify the exact URL the WebView will load. This prevents a bound but
+      // unusable localhost server from producing another white screen.
+      final probeUri = Uri.parse(AppStrings.localHostBaseUrl);
+      Object? lastProbeError;
+      var servedIndex = false;
+      for (var attempt = 0; attempt < 10; attempt++) {
+        try {
+          final response = await http
+              .get(probeUri)
+              .timeout(const Duration(milliseconds: 500));
+          if (response.statusCode == 200 &&
+              response.body.toLowerCase().contains('<html')) {
+            servedIndex = true;
+            break;
+          }
+          lastProbeError = StateError(
+            'Localhost probe returned HTTP ${response.statusCode}',
+          );
+        } catch (e) {
+          lastProbeError = e;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+
+      if (!servedIndex) {
+        throw StateError(
+          'Localhost server is running but index.html is not being served: $lastProbeError',
+        );
+      }
+
       if (mounted) {
         setState(() {
           _localhostServerStarted = true;
+        });
+      }
+
+      // Never make first render depend on the network. Remote bundle checks
+      // remain background-only and cannot replace the currently running bundle.
+      unawaited(updateService.checkForUpdatesInBackground());
+    } catch (e) {
+      AppLogger.e('Failed to start InAppLocalhostServer', e);
+      if (mounted) {
+        setState(() {
+          _localhostServerStarted = false;
+          _hasLoadError = true;
         });
       }
     }
@@ -314,7 +445,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(
           cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
-          networkAvailable: isConnected,
+          networkAvailable: true,
         ),
       );
     }
@@ -939,7 +1070,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    if (!_connectivityInitialized || !_localhostServerStarted) {
+    if (!_localhostServerStarted) {
       return const Scaffold(
         backgroundColor: bleachWhite,
         body: ColoredBox(color: bleachWhite),
@@ -1165,7 +1296,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     overScrollMode: OverScrollMode.NEVER,
                     hardwareAcceleration: true,
                     cacheMode: _getCurrentCacheMode(),
-                    networkAvailable: _isOnline,
+                    networkAvailable: true,
                     transparentBackground: false,
                     useWideViewPort: true,
                     loadWithOverviewMode: true,
