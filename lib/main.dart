@@ -59,15 +59,6 @@ class EGlobalWalletApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Explicitly release any generated native splash after Flutter has drawn
-    // its first frame. This is safe even when no preserve() call is active,
-    // and prevents a stale native splash from masking the Flutter/WebView UI.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        FlutterNativeSplash.remove();
-      } catch (_) {}
-    });
-
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp(
@@ -105,6 +96,14 @@ class _StartupRouterState extends State<StartupRouter> {
   @override
   void initState() {
     super.initState();
+    // Explicitly release any generated native splash after the first Flutter
+    // frame. This is safe even when no preserve() call is active and prevents
+    // a stale native splash from masking the Flutter/WebView UI.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        FlutterNativeSplash.remove();
+      } catch (_) {}
+    });
     unawaited(_resolveStartupRoute());
   }
 
