@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -20,62 +23,39 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 }
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
+/// Firebase and other service initialization must never block Flutter's first
+/// frame. Blocking before runApp can leave the Android native splash visible
+/// indefinitely, especially when a device is offline or a platform service is
+/// slow to respond.
+Future<void> _initializeFirebaseInBackground() async {
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp().timeout(const Duration(seconds: 8));
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   } catch (e) {
     AppLogger.e(
-      'Firebase initialization skipped or failed. Ensure configuration files are present.',
+      'Firebase initialization skipped or timed out. Ensure configuration files are present.',
       e,
     );
   }
+}
 
-  // Resolve the startup route before Flutter renders the first screen so a user
-  // who already completed permissions never sees the onboarding page again.
-  // The onboarding screen remains the safety fallback if the marker is absent.
-  var initialRoute = '/permissions';
-  try {
-    const onboardingKey = 'eglobal_permissions_onboarding_completed_v1';
-    final storage = SecureStorageServiceImpl();
-    final completed = await storage.read(onboardingKey) == 'true';
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
 
-    // Migration-safe: older installs may already have all required
-    // permissions granted even if the completion marker was not persisted.
-    bool requiredPermissionsGranted = true;
-    for (final permission in <Permission>[
-      Permission.camera,
-      Permission.microphone,
-      Permission.locationWhenInUse,
-    ]) {
-      final status = await permission.status;
-      if (!(status.isGranted || status.isLimited || status.isRestricted)) {
-        requiredPermissionsGranted = false;
-        break;
-      }
-    }
-
-    if (completed || requiredPermissionsGranted) {
-      initialRoute = '/webview';
-      if (!completed && requiredPermissionsGranted) {
-        await storage.write(onboardingKey, 'true');
-      }
-    }
-  } catch (e) {
-    AppLogger.e('Failed to read permissions onboarding state; using safe fallback.', e);
-  }
+  // Never await Firebase, secure storage, permissions, connectivity, or
+  // network work before runApp(). The native splash must be released by
+  // Flutter's first frame even when the device is offline.
+  unawaited(_initializeFirebaseInBackground());
 
   runApp(
-    ProviderScope(child: EGlobalWalletApp(initialRoute: initialRoute)),
+    const ProviderScope(
+      child: EGlobalWalletApp(),
+    ),
   );
 }
 
 class EGlobalWalletApp extends ConsumerWidget {
-  final String initialRoute;
-
-  const EGlobalWalletApp({super.key, required this.initialRoute});
+  const EGlobalWalletApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -87,12 +67,127 @@ class EGlobalWalletApp extends ConsumerWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
-      initialRoute: initialRoute,
+      home: const StartupRouter(),
       routes: {
         '/webview': (context) => const WebviewScreen(),
         '/permissions': (context) => const PermissionsOnboardingScreen(),
         '/biometric_login': (context) => const BiometricLoginScreen(),
       },
+    );
+  }
+}
+
+/// Resolves the first user-facing screen after Flutter has already rendered.
+/// All local checks are bounded so a broken/slow keystore or permission
+/// platform call can never strand the application on startup.
+class StartupRouter extends StatefulWidget {
+  const StartupRouter({super.key});
+
+  @override
+  State<StartupRouter> createState() => _StartupRouterState();
+}
+
+class _StartupRouterState extends State<StartupRouter> {
+  String? _route;
+
+  static const _onboardingKey =
+      'eglobal_permissions_onboarding_completed_v1';
+
+  @override
+  void initState() {
+    super.initState();
+    // Explicitly release any generated native splash after the first Flutter
+    // frame. This is safe even when no preserve() call is active and prevents
+    // a stale native splash from masking the Flutter/WebView UI.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        FlutterNativeSplash.remove();
+      } catch (_) {}
+    });
+    unawaited(_resolveStartupRoute());
+  }
+
+  Future<void> _resolveStartupRoute() async {
+    try {
+      final storage = SecureStorageServiceImpl();
+
+      final completedFuture = storage.read(_onboardingKey);
+      final permissionFutures = <Future<PermissionStatus>>[
+        Permission.camera.status,
+        Permission.microphone.status,
+        Permission.locationWhenInUse.status,
+      ];
+
+      final values = await Future.wait<dynamic>([
+        completedFuture,
+        ...permissionFutures,
+      ]).timeout(const Duration(seconds: 2));
+
+      final completed = values[0] == 'true';
+      final statuses = values
+          .skip(1)
+          .cast<PermissionStatus>()
+          .toList(growable: false);
+
+      final requiredPermissionsGranted = statuses.every(
+        (status) =>
+            status.isGranted || status.isLimited || status.isRestricted,
+      );
+
+      if (completed || requiredPermissionsGranted) {
+        if (!completed && requiredPermissionsGranted) {
+          try {
+            await storage
+                .write(_onboardingKey, 'true')
+                .timeout(const Duration(seconds: 1));
+          } catch (e) {
+            AppLogger.e(
+              'Could not persist migrated permissions onboarding state.',
+              e,
+            );
+          }
+        }
+
+        if (mounted) {
+          setState(() => _route = '/webview');
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() => _route = '/permissions');
+      }
+    } catch (e) {
+      // Startup must fail open to the wallet shell rather than trapping the
+      // user on the native splash or an indefinite blank screen. Runtime
+      // feature permissions are still enforced by WebView permission handlers.
+      AppLogger.e(
+        'Startup route resolution timed out or failed; opening wallet WebView.',
+        e,
+      );
+      if (mounted) {
+        setState(() => _route = '/webview');
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final route = _route;
+
+    if (route == '/permissions') {
+      return const PermissionsOnboardingScreen();
+    }
+
+    if (route == '/webview') {
+      return const WebviewScreen();
+    }
+
+    // This is a Flutter frame, not the native splash. It guarantees that
+    // native Android/iOS startup cannot remain visible while local checks run.
+    return const Scaffold(
+      backgroundColor: Colors.white,
+      body: ColoredBox(color: Colors.white),
     );
   }
 }
