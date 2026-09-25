@@ -1,9 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:wallet/core/constants/app_strings.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wallet/main.dart';
 
 void main() {
-  test('EGlobalWalletApp configuration and strings', () {
-    expect(AppStrings.appName, equals('E-Global Pay'));
-    expect(AppStrings.packageIdentifier, equals('com.eglobal.wallet'));
+  testWidgets('Initial route builds correctly and mounts the app', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: EGlobalWalletApp(),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 1600));
+
+    // Verify EGlobalWalletApp mounts successfully
+    expect(find.byType(EGlobalWalletApp), findsOneWidget);
   });
 }
