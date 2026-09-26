@@ -380,9 +380,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
               channelDescription:
                   'This channel is used for important wallet updates.',
               importance: Importance.max,
-              priority: Priority.high,
+              priority: Priority.max,
               icon: android?.smallIcon ?? '@drawable/ic_notification',
               playSound: true,
+              enableVibration: true,
+              fullScreenIntent: true,
             ),
             iOS: const DarwinNotificationDetails(
               presentAlert: true,

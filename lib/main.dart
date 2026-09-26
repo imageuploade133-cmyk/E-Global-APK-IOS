@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'core/utils/logger.dart';
 import 'core/theme/app_theme.dart';
@@ -17,9 +18,65 @@ import 'core/security/secure_storage_service.dart';
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   try {
+    WidgetsFlutterBinding.ensureInitialized();
     await Firebase.initializeApp();
+
+    final FlutterLocalNotificationsPlugin localNotifications =
+        FlutterLocalNotificationsPlugin();
+
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@drawable/ic_notification');
+    const DarwinInitializationSettings iosSettings =
+        DarwinInitializationSettings(
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+        );
+    const InitializationSettings initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+
+    await localNotifications.initialize(initSettings);
+
+    final notification = message.notification;
+    final data = message.data;
+
+    final String title = notification?.title ??
+        (data['title']?.toString()) ??
+        'E-Global Pay';
+    final String body = notification?.body ??
+        (data['body'] ?? data['message'] ?? '') .toString();
+
+    if (body.isNotEmpty || notification != null) {
+      await localNotifications.show(
+        message.hashCode,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'eglobal_wallet_high_channel',
+            'E-Global Wallet Notifications',
+            channelDescription:
+                'This channel is used for important wallet updates.',
+            importance: Importance.max,
+            priority: Priority.max,
+            icon: message.notification?.android?.smallIcon ??
+                '@drawable/ic_notification',
+            playSound: true,
+            enableVibration: true,
+            fullScreenIntent: true,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+      );
+    }
   } catch (e) {
-    AppLogger.e('Background Firebase Messaging initialization skipped', e);
+    AppLogger.e('Error handling background push notification message', e);
   }
 }
 
