@@ -92,13 +92,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Keep the original native splash/opaque surface in place until connectivity
-    // is known and, when online, until a trusted WebView page has fully loaded.
-    // This prevents the initial WebView URL/error page from ever flashing.
     _initConnectivity();
     _initPushNotifications();
-    // Keep the native splash/opaque startup guard visible until the WebView has
-    // fully rendered a trusted page or a terminal error/offline UI is ready.
   }
 
   @override
@@ -144,9 +139,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _navigationGuardVisible = true;
         }
       });
-      // Offline startup has a terminal Flutter error state, so it is safe to
-      // remove the native splash now. Online startup stays covered until
-      // onLoadStop proves that a trusted page rendered successfully.
       if (!initialConnectivity) {
         _restoreSystemUi();
       }
@@ -167,14 +159,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   Future<void> _initPushNotifications() async {
     final pushService = ref.read(pushNotificationServiceProvider);
 
-    // Register the redirect listener FIRST so we catch any initial broadcasted messages on bootup
     _redirectSubscription = pushService.onNotificationRedirectStream.listen((
       path,
     ) {
       _handleNotificationRedirect(path);
     });
 
-    // Initialize Push notifications (including processing initial messages)
     await pushService.initialize();
   }
 
@@ -197,7 +187,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   void _startLoadingTimer() {
     _loadingTimeoutTimer?.cancel();
-    // If page load takes longer than 20 seconds, hide webview and show try again overlay
     _loadingTimeoutTimer = Timer(const Duration(seconds: 7), () {
       if (mounted) {
         AppLogger.e('Page loading timed out (slow connection)');
@@ -243,8 +232,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<void> _checkConnectionAndReload() async {
-
-    // Native haptic first, with Flutter fallback.
     await _triggerNativeHaptic();
 
     final recoveryAttemptId = ++_loadAttemptId;
@@ -257,7 +244,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         _isUserRetrying = true;
         _hasLoadError = true;
         _navigationGuardVisible = true;
-        // Keep the overlay mounted over the SAME WebView for the entire recovery attempt.
       });
     }
 
@@ -286,9 +272,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _startLoadingTimer();
     final controller = _webViewController;
     if (controller != null && _recoveryAttemptId == recoveryAttemptId) {
-      // Explicit Retry is the controlled update path. Temporarily prefer the
-      // network so a newer deployed web app can be picked up, then restore
-      // cache-first mode after the successful navigation.
       await controller.setSettings(
         settings: InAppWebViewSettings(
           cacheMode: CacheMode.LOAD_DEFAULT,
@@ -303,9 +286,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
   Future<void> _handleConnectivityChange(bool isConnected) async {
-    // Connectivity changes must not trigger an automatic network reload.
-    // Keep the WebView cache-first so the page already on screen is stable.
-    // A fresh network load is only requested by an explicit retry/navigation.
     if (_webViewController != null) {
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(
@@ -317,10 +297,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   CacheMode _getCurrentCacheMode() {
-    // Cache-first in both online and offline states:
-    // - previously cached pages/resources can render immediately;
-    // - uncached destinations use the network when available;
-    // - coming online never forces an instant replacement of the page in view.
     return CacheMode.LOAD_CACHE_ELSE_NETWORK;
   }
 
@@ -445,7 +421,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _parseContentDispositionFileName(String? contentDisposition) {
     if (contentDisposition == null || contentDisposition.isEmpty) return null;
     try {
-      // 1. Check for RFC 5987 style: filename*=UTF-8''encoded_name.ext or filename*=utf-8'lang'encoded_name.ext
       final utf8Match = RegExp(
         r'''filename\*\s*=\s*(?:utf-8|UTF-8)['"]*['"]*(?:[^'\n]*)['"]*['"]*([^;\n]+)''',
         caseSensitive: false,
@@ -458,7 +433,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         }
       }
 
-      // 2. Check for standard style: filename="normal_name.ext" or filename=normal_name.ext
       final stdMatch = RegExp(
         r'''filename\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\n]+))''',
         caseSensitive: false,
@@ -514,7 +488,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         request.headers.set('User-Agent', userAgent);
       }
 
-      // Forward WebView session cookies for authenticated downloads
       if (_webViewController != null) {
         try {
           final cookieManager = CookieManager.instance();
@@ -690,6 +663,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     result = result.replaceAll('https://e-global-197077.vercel.app/', '');
     result = result.replaceAll('https://e-global-197077.vercel.app', '');
     result = result.replaceAll('e-global-197077.vercel.app', '');
+    result = result.replaceAll('localhost:8080', '');
+    result = result.replaceAll('localhost', '');
+    result = result.replaceAll('127.0.0.1', '');
     return result;
   }
 
@@ -699,7 +675,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           ? base64Data.split(',').last
           : base64Data;
 
-      // Memory safety ceiling check prior to base64 decoding (max ~100MB string length = ~75MB binary)
       const maxBase64Length = 100 * 1024 * 1024;
       if (cleanBase64.length > maxBase64Length) {
         AppLogger.e('Base64 share payload exceeds maximum memory safety threshold');
@@ -740,7 +715,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final client = HttpClient();
       final request = await client.getUrl(uri);
 
-      // Retrieve and forward WebView session cookies to support authenticated receipt downloads
       if (_webViewController != null) {
         final cookieManager = CookieManager.instance();
         final cookies = await cookieManager.getCookies(
@@ -894,8 +868,38 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     try {
       await controller.evaluateJavascript(source: """
         (function() {
+          function scrubDomAndUrl() {
+            try {
+              if (document.title && (
+                document.title.includes('e-global') ||
+                document.title.includes('vercel.app') ||
+                document.title.includes('localhost') ||
+                document.title.includes('net::ERR') ||
+                document.title.includes('http')
+              )) {
+                document.title = 'E-Global Pay';
+              }
+
+              var scrubber = function(node) {
+                if (node.nodeType === 3 && node.nodeValue) {
+                  var v = node.nodeValue;
+                  if (v.includes('e-global-197077.vercel.app') || v.includes('localhost:8080') || v.includes('net::ERR_')) {
+                    node.nodeValue = v.replace(/https?:\\/\\/[^\\s"']+/g, '')
+                                      .replace(/e-global-197077\\.vercel\\.app/g, '')
+                                      .replace(/localhost:8080/g, '')
+                                      .replace(/net::ERR_[A-Z_]+/g, '');
+                  }
+                } else if (node.nodeType === 1) {
+                  for (var i = 0; i < node.childNodes.length; i++) {
+                    scrubber(node.childNodes[i]);
+                  }
+                }
+              };
+              if (document.body) scrubber(document.body);
+            } catch(e) {}
+          }
+
           function applyFormSecurityAndUI() {
-            // Disable scrollbars globally via CSS
             if (!document.getElementById('eglobal-hide-scrollbars')) {
               var style = document.createElement('style');
               style.id = 'eglobal-hide-scrollbars';
@@ -911,7 +915,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               (document.head || document.documentElement).appendChild(style);
             }
 
-            // Disable form autofill globally
             var forms = document.querySelectorAll('form');
             forms.forEach(function(f) {
               f.setAttribute('autocomplete', 'off');
@@ -930,7 +933,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 i.setAttribute('autocomplete', 'one-time-code');
               }
             });
+
+            scrubDomAndUrl();
           }
+
           applyFormSecurityAndUI();
           if (document.readyState !== 'complete') {
             window.addEventListener('load', applyFormSecurityAndUI);
@@ -943,14 +949,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
 
-
   @override
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
 
-    // Fail closed before connectivity is initialized: do not create the
-    // WebView until the network state is known. This removes the startup race
-    // where Chromium could briefly expose the public URL or native error page.
     if (!_connectivityInitialized) {
       return const Scaffold(
         backgroundColor: bleachWhite,
@@ -958,8 +960,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       );
     }
 
-    // Offline startup never creates a WebView. Only the sensitive Flutter
-    // connection UI is exposed to the user.
     if (!_isOnline && _hasLoadError) {
       return Scaffold(
         backgroundColor: bleachWhite,
@@ -990,6 +990,24 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     UserScript(
                       source: """
                         (function() {
+                          // Complete URL and Domain Scrubber
+                          function scrubUrls() {
+                            try {
+                              if (document.title && (
+                                document.title.includes('e-global') ||
+                                document.title.includes('vercel.app') ||
+                                document.title.includes('localhost') ||
+                                document.title.includes('net::ERR') ||
+                                document.title.includes('http')
+                              )) {
+                                document.title = 'E-Global Pay';
+                              }
+                            } catch(e) {}
+                          }
+
+                          scrubUrls();
+                          window.addEventListener('DOMNodeInserted', scrubUrls, false);
+
                           var style = document.createElement('style');
                           style.id = 'eglobal-hide-scrollbars';
                           style.innerHTML = `
@@ -1099,12 +1117,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     safeBrowsingEnabled: true,
                     disableDefaultErrorPage: true,
                     saveFormData: false,
-                    // Do not persist or offer WebView form credentials/data.
                     disableContextMenu: true,
-                    // Enforce HTTPS-only content security and disallow mixed HTTP content
                     mixedContentMode:
                         MixedContentMode.MIXED_CONTENT_NEVER_ALLOW,
-                    // Native scrollbar suppression: keep indicators hidden even during active drag.
                     verticalScrollBarEnabled: false,
                     horizontalScrollBarEnabled: false,
                     scrollbarFadingEnabled: false,
@@ -1115,30 +1130,17 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     verticalScrollbarTrackColor: Colors.transparent,
                     horizontalScrollbarThumbColor: Colors.transparent,
                     horizontalScrollbarTrackColor: Colors.transparent,
-                    // Remove Android edge overscroll effects so normal scrolling feels lighter.
                     disallowOverScroll: true,
                     overScrollMode: OverScrollMode.NEVER,
-                    // Keep native WebView hardware acceleration explicitly enabled.
                     hardwareAcceleration: true,
-                    // Robust 100% offline support cache configuration
-                    // Cache-first startup/navigation prevents an online
-                    // reconnect from immediately replacing the page the user is
-                    // currently viewing. Uncached pages still use the network.
                     cacheMode: _getCurrentCacheMode(),
                     networkAvailable: _isOnline,
-                    // Keep the native WebView opaque. The Flutter guard above already
-                    // provides the white startup surface while the page is loading.
-                    // This avoids a transparent WebView rendering as a permanent white
-                    // surface on some Android WebView implementations.
                     transparentBackground: false,
-                    // Enable high fidelity viewport dynamic scaling for smaller devices
                     useWideViewPort: true,
                     loadWithOverviewMode: true,
                     supportZoom: false,
-                    // Restrict third-party cookies by default to protect cross-site user sessions
                     thirdPartyCookiesEnabled: false,
                     sharedCookiesEnabled: true,
-                    // Disallow local file system access from web context
                     allowFileAccess: false,
                     allowFileAccessFromFileURLs: false,
                     allowUniversalAccessFromFileURLs: false,
@@ -1152,9 +1154,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     final urlString = uri.toString();
                     final path = uri.path.toLowerCase();
 
-                    // Verify connectivity at the exact moment a main-frame
-                    // navigation is requested. Connectivity callbacks can lag behind
-                    // a real network drop.
                     if (navigationAction.isForMainFrame == true &&
                         (scheme == 'http' || scheme == 'https')) {
                       final connectivity = ref.read(connectivityServiceProvider);
@@ -1173,9 +1172,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       if (!isConnectedNow &&
                           !isPreviouslyLoaded &&
                           !isHistoryNavigation) {
-                        // Do not start the navigation at all. This is the key
-                        // guarantee that an offline destination can never expose
-                        // Chromium's "Web page not available" URL/error page.
                         _offlineNavigationOriginUrl = _lastSuccessfulUrl;
                         _offlineNavigationInProgress = false;
                         _offlineNavigationRestoring = false;
@@ -1190,21 +1186,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         return NavigationActionPolicy.CANCEL;
                       }
 
-                      // For a page that was previously loaded (or browser history
-                      // navigation), keep the WebView behind an opaque guard until
-                      // onLoadStop proves the destination rendered successfully.
                       if (isPreviouslyLoaded || isHistoryNavigation) {
                         _navigationGuardVisible = true;
                         if (mounted) {
                           setState(() {});
                         }
-                        // Give Flutter one frame to paint the guard before allowing
-                        // WebView navigation, preventing URL/error-page flashes.
                         await Future<void>.delayed(const Duration(milliseconds: 16));
                         if (!mounted) return NavigationActionPolicy.CANCEL;
                       }
 
-                    // In offline mode, strictly block new server-changing or sensitive operations
                     if (!_isOnline) {
                       final sensitiveKeywords = [
                         'transfer',
@@ -1232,7 +1222,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       }
                     }
 
-                    // Handle native share triggers safely
                     if (urlString.startsWith('share:') ||
                         urlString.startsWith('eglobal://share')) {
                       final queryParams = uri.queryParameters;
@@ -1244,12 +1233,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       return NavigationActionPolicy.CANCEL;
                     }
 
-                    // Always allow internal navigation within the primary wallet domain
                     if (AppStrings.isTrustedWalletOrigin(uri)) {
                       return NavigationActionPolicy.ALLOW;
                     }
 
-                    // Handle standard safe external communications (tel, mailto, whatsapp, SMS)
                     if (scheme == 'tel' ||
                         scheme == 'mailto' ||
                         scheme == 'sms' ||
@@ -1268,12 +1255,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       return NavigationActionPolicy.CANCEL;
                     }
 
-                    // Allow trusted third-party payment provider / KYC host gateways
                     if (AppStrings.isTrustedGatewayOrigin(uri)) {
                       return NavigationActionPolicy.ALLOW;
                     }
 
-                    // For all other external HTTPS URLs, open in the external system browser to avoid untrusted web takeover
                     if (scheme == 'https' || scheme == 'http') {
                       try {
                         await launchUrl(
@@ -1288,9 +1273,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       }
                       return NavigationActionPolicy.CANCEL;
                     }
-                    // End of external HTTP/HTTPS handling.
 
-                    // Block file://, javascript:, data:, and unknown schemes
                     AppLogger.e(
                       'Blocked unsafe/unknown navigation request to: $urlString',
                     );
@@ -1302,13 +1285,11 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   onWebViewCreated: (controller) {
                     _webViewController = controller;
 
-                    // Register the controller with pushNotificationService for dynamic JavaScript callbacks
                     final pushService = ref.read(
                       pushNotificationServiceProvider,
                     );
                     pushService.setWebViewController(controller);
 
-                    // Expose native haptic feedback to the wallet web app.
                     controller.addJavaScriptHandler(
                       handlerName: 'triggerHaptic',
                       callback: (args) async {
@@ -1336,7 +1317,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'unregisterFcmToken' handler to the web app for secure native FCM unregistration on logout
                     controller.addJavaScriptHandler(
                       handlerName: 'unregisterFcmToken',
                       callback: (args) async {
@@ -1349,7 +1329,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'getFcmToken' handler to the web app with strict origin check
                     controller.addJavaScriptHandler(
                       handlerName: 'getFcmToken',
                       callback: (args) async {
@@ -1363,7 +1342,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'requestNotificationPermission' handler to the web app with strict origin check
                     controller.addJavaScriptHandler(
                       handlerName: 'requestNotificationPermission',
                       callback: (args) async {
@@ -1380,7 +1358,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose generic 'share' handler to the web app with origin validation
                     controller.addJavaScriptHandler(
                       handlerName: 'share',
                       callback: (args) async {
@@ -1418,7 +1395,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose native microphone permission bridge for WebView getUserMedia.
                     controller.addJavaScriptHandler(
                       handlerName: 'requestMicrophonePermission',
                       callback: (args) async {
@@ -1437,7 +1413,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose native base64/data download bridge for generated PDFs/images.
                     controller.addJavaScriptHandler(
                       handlerName: 'downloadBase64File',
                       callback: (args) async {
@@ -1531,7 +1506,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'requestContactsPermission' handler for on-demand permission checking
                     controller.addJavaScriptHandler(
                       handlerName: 'requestContactsPermission',
                       callback: (args) async {
@@ -1550,7 +1524,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'pickContact' handler for user contact selection
                     controller.addJavaScriptHandler(
                       handlerName: 'pickContact',
                       callback: (args) async {
@@ -1568,7 +1541,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           final contact = await FlutterContacts.openExternalPick();
                           if (contact == null) return null;
 
-                          // Retrieve full details for selected contact safely
                           final fullContact = await FlutterContacts.getContact(contact.id);
                           final selected = fullContact ?? contact;
 
@@ -1590,7 +1562,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'getRememberedEmail' handler for secure email restoration
                     controller.addJavaScriptHandler(
                       handlerName: 'getRememberedEmail',
                       callback: (args) async {
@@ -1608,7 +1579,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'saveRememberedEmail' handler for secure email persistence
                     controller.addJavaScriptHandler(
                       handlerName: 'saveRememberedEmail',
                       callback: (args) async {
@@ -1636,7 +1606,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose 'clearRememberedEmail' handler to clear saved email
                     controller.addJavaScriptHandler(
                       handlerName: 'clearRememberedEmail',
                       callback: (args) async {
@@ -1652,7 +1621,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Expose receipt-specific 'shareReceipt' handler to the web app with origin validation
                     controller.addJavaScriptHandler(
                       handlerName: 'shareReceipt',
                       callback: (args) async {
@@ -1683,7 +1651,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    // Execute any pending redirect from cold boot / terminated state
                     if (_pendingRedirectPath != null) {
                       final path = _pendingRedirectPath!;
                       _pendingRedirectPath = null;
@@ -1694,10 +1661,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     _loadAttemptId++;
                     _mainFrameLoading = true;
                     _webViewReady = false;
-                    // Keep an opaque Flutter surface above WebView until a trusted
-                    // page has fully loaded. This prevents Chromium/WebView URLs,
-                    // blank error pages, and partial slow-network pages from ever
-                    // being exposed to the user.
                     _navigationGuardVisible = true;
                     _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
@@ -1705,8 +1668,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _recoveryCompleted = false;
                     }
 
-                    // Keep the last successfully rendered URL authoritative while
-                    // a new/offline navigation is still unverified.
                     if (url != null && !_offlineNavigationInProgress) {
                       _currentUrl = url.toString();
                     }
@@ -1788,8 +1749,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             _isCrashing = false;
                             _isUserRetrying = false;
                           });
-                          // Return to cache-first behavior after an explicit
-                          // network refresh succeeds.
                           await controller.setSettings(
                             settings: InAppWebViewSettings(
                               cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
@@ -1826,13 +1785,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onProgressChanged: (controller, progress) {
                     webViewNotifier.setProgress(progress / 100);
-
-                    // Progress callbacks can arrive after onLoadStop on some
-                    // Android WebView versions. Never re-cover a page that has
-                    // already completed successfully unless a new main-frame
-                    // navigation has actually started.
-                    // Never re-cover the WebView with a full-screen Flutter overlay during loading.
-                    // Progress remains available for recovery/diagnostics.
                   },
                   onReceivedError: (controller, request, error) async {
                     AppLogger.e(
@@ -1843,8 +1795,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _navigationGuardVisible = false;
                       _restoreSystemUi();
 
-                      // A new offline page must never replace the last usable page.
-                      // Keep the overlay covering the WebView while returning to cache/history.
                       if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
                         _offlineNavigationRestoring = true;
                         _offlineNavigationInProgress = false;
@@ -1874,7 +1824,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         return;
                       }
 
-                      // Keep the recovery overlay mounted; timeout decides recovery failure.
                       if (_isUserRetrying) return;
                       if (!_mainFrameLoading) return;
 
@@ -1886,7 +1835,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
 
-                      // Never let a callback mutate a newer navigation.
                       if (mounted &&
                           _mainFrameLoading &&
                           _loadAttemptId == attemptAtCallback &&
@@ -1974,7 +1922,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     AppLogger.e(
                       'WebView SSL/Trust authentication requested for host: ${challenge.protectionSpace.host}',
                     );
-                    // Return cancel to safely handle SSL errors / protect connection in production
                     return ServerTrustAuthResponse(
                       action: ServerTrustAuthResponseAction.CANCEL,
                     );
@@ -2129,9 +2076,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 Positioned.fill(
                   child: _buildSensitiveOfflineErrorUi(),
                 ),
-              // Final privacy guard: while a main-frame URL is loading, Flutter
-              // paints an opaque white surface above the WebView. The WebView is
-              // only exposed after onLoadStop verifies a trusted origin.
               if (_navigationGuardVisible && !_hasLoadError && !_isCrashing)
                 const Positioned.fill(
                   child: ColoredBox(color: Colors.white),
