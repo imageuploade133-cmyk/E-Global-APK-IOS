@@ -64,7 +64,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   bool _isInBackground = false;
   bool _hasRestoredSystemUi = false;
-  Timer? _startupGuardTimer;
 
   void _restoreSystemUi() {
     if (_hasRestoredSystemUi) return;
@@ -101,7 +100,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _connectivitySubscription?.cancel();
     _redirectSubscription?.cancel();
     _loadingTimeoutTimer?.cancel();
-    _startupGuardTimer?.cancel();
     super.dispose();
   }
 
@@ -148,6 +146,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         setState(() {
           _isOnline = isConnected;
+          if (!isConnected && !_webViewReady) {
+            _hasLoadError = true;
+            _isUserRetrying = false;
+          }
         });
         _handleConnectivityChange(isConnected);
       }
@@ -1055,17 +1057,15 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             var autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
                             var txt = (el.innerText || el.textContent || '').trim().toLowerCase();
 
-                            // Match circular or rectangular digit buttons (0-9, CLEAR, backspace)
-                            if (tag === 'button' || tag === 'div' || tag === 'span' || tag === 'a' || tag === 'input') {
-                              if (/^[0-9]\$/ .test(txt) || txt === 'clear' || txt.includes('clear') || txt === 'x' || txt === '⌫') {
-                                return true;
-                              }
-                            }
-
                             if (type === 'password' || type === 'tel' || type === 'number') {
                               return true;
                             }
-                            var pinKeywords = ['pin', 'otp', 'passcode', 'access', 'txn', 'transaction', 'code', 'digit', 'keypad', 'security', 'key', 'num', 'btn'];
+
+                            if (/^[0-9]\$/ .test(txt) || txt === 'clear' || txt === 'x' || txt === '⌫') {
+                              return true;
+                            }
+
+                            var pinKeywords = ['pin', 'otp', 'passcode', 'access', 'txn', 'transaction', 'code', 'digit', 'keypad', 'security'];
                             for (var i = 0; i < pinKeywords.length; i++) {
                               var kw = pinKeywords[i];
                               if (id.includes(kw) || name.includes(kw) || cls.includes(kw) || placeholder.includes(kw) || autocomplete.includes(kw)) {
@@ -1076,17 +1076,21 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           }
 
                           document.addEventListener('keydown', function(e) {
-                            triggerPinHaptic();
+                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
+                              triggerPinHaptic();
+                            }
                           }, true);
 
                           document.addEventListener('input', function(e) {
-                            triggerPinHaptic();
+                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
+                              triggerPinHaptic();
+                            }
                           }, true);
 
-                          function handleGlobalPointer(e) {
+                          function handlePointer(e) {
                             var target = e.target;
                             while (target && target !== document.body) {
-                              if (isPinRelated(target) || target.tagName === 'BUTTON' || target.getAttribute('role') === 'button' || target.onclick) {
+                              if (isPinRelated(target) || (target.tagName === 'BUTTON' && isPinRelated(target.parentElement))) {
                                 triggerPinHaptic();
                                 break;
                               }
@@ -1094,9 +1098,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             }
                           }
 
-                          document.addEventListener('touchstart', handleGlobalPointer, { passive: true, capture: true });
-                          document.addEventListener('pointerdown', handleGlobalPointer, { passive: true, capture: true });
-                          document.addEventListener('click', handleGlobalPointer, true);
+                          document.addEventListener('touchstart', handlePointer, { passive: true, capture: true });
+                          document.addEventListener('click', handlePointer, true);
                         })();
                       """,
                       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
