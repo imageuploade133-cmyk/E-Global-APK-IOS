@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import '../constants/app_strings.dart';
 import 'dart:async';
@@ -31,7 +30,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
   String? _lastToken;
   bool _backendRegistrationInProgress = false;
 
-  // Stream controller to broadcast destination paths to the WebView
   final StreamController<String> _redirectController =
       StreamController<String>.broadcast();
 
@@ -45,6 +43,47 @@ class PushNotificationServiceImpl implements PushNotificationService {
     if (token != null) {
       _syncTokenWithWebView(token);
       unawaited(_registerTokenWithCurrentWebSession(token));
+    }
+  }
+
+  Future<String?> _getAuthIdTokenFromWebView() async {
+    final controller = _webViewController;
+    if (controller == null) return null;
+    try {
+      final raw = await controller.evaluateJavascript(
+        source: """
+          (async function() {
+            try {
+              if (window.firebase && window.firebase.auth && window.firebase.auth().currentUser) {
+                return await window.firebase.auth().currentUser.getIdToken(true);
+              }
+              for (var i = 0; i < localStorage.length; i++) {
+                var key = localStorage.key(i);
+                if (key.indexOf('firebase:authUser') !== -1) {
+                  var item = JSON.parse(localStorage.getItem(key));
+                  if (item && item.stsTokenManager && item.stsTokenManager.accessToken) {
+                    return item.stsTokenManager.accessToken;
+                  }
+                }
+              }
+            } catch(e) {}
+            return null;
+          })();
+        """,
+      );
+      if (raw == null) return null;
+      final value = raw.toString().trim();
+      if (value.isEmpty || value == 'null' || value == 'undefined') return null;
+      if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+        try {
+          final decoded = jsonDecode(value);
+          if (decoded is String && decoded.isNotEmpty) return decoded;
+        } catch (_) {}
+      }
+      return value;
+    } catch (e) {
+      AppLogger.w('Could not read Auth ID Token from WebView: $e');
+      return null;
     }
   }
 
@@ -86,33 +125,34 @@ class PushNotificationServiceImpl implements PushNotificationService {
         Duration(seconds: 10),
       ];
       for (var attempt = 0; attempt < delays.length; attempt++) {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user == null) return;
+        final idToken = await _getAuthIdTokenFromWebView();
         final sessionId = await _getActiveSessionIdFromWebView();
-        if (sessionId == null || sessionId.isEmpty) {
-          await Future<void>.delayed(delays[attempt]);
-          continue;
-        }
-        final idToken = await user.getIdToken(true);
+
         if (idToken == null || idToken.isEmpty) {
           await Future<void>.delayed(delays[attempt]);
           continue;
         }
+
         final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
+        final headers = <String, String>{
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        };
+        if (sessionId != null && sessionId.isNotEmpty) {
+          headers['X-Session-ID'] = sessionId;
+        }
+
         final response = await http.post(
           uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $idToken',
-            'X-Session-ID': sessionId,
-          },
+          headers: headers,
           body: jsonEncode({
             'token': token,
             'platform': Platform.isAndroid ? 'android' : 'ios',
           }),
         ).timeout(const Duration(seconds: 10));
+
         if (response.statusCode == 200) {
-          AppLogger.i('FCM token registered for the verified active device session.');
+          AppLogger.i('FCM token registered successfully for active web session.');
           return;
         }
         AppLogger.w('Active-session FCM registration attempt ${attempt + 1} returned ${response.statusCode}.');
@@ -132,8 +172,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
         await _webViewController!.evaluateJavascript(
           source:
               """
-          if (typeof window !== 'undefined' && window.__syncFcmToken) {
-            window.__syncFcmToken('$token');
+          if (typeof window !== 'undefined') {
+            window.__fcmToken = '$token';
+            if (window.__syncFcmToken) {
+              window.__syncFcmToken('$token');
+            }
           }
         """,
         );
@@ -152,41 +195,20 @@ class PushNotificationServiceImpl implements PushNotificationService {
   @override
   Future<void> initialize() async {
     try {
-      // 1. Initialize local notifications for foreground heads-up displays
       await _initializeLocalNotifications();
-
-      // 2. Setup Firebase notification handlers
       _setupFirebaseListeners();
 
-      // 3. Check and process initial message if app was launched from a terminated state
       final RemoteMessage? initialMessage = await _fcm.getInitialMessage();
       if (initialMessage != null) {
         _handleNotificationPayload(initialMessage.data);
       }
 
-      // 4. Automatically listen and securely persist/refresh FCM token
       _fcm.onTokenRefresh.listen((newToken) async {
         AppLogger.i('FCM token refreshed');
         await _secureStorage.write('fcm_token', newToken);
         await sendTokenToBackend(newToken);
       });
 
-      // 5. Automatically handle FCM token registration on login and unregistration on logout
-      FirebaseAuth.instance.authStateChanges().listen((user) async {
-        if (user != null) {
-          final token = await getFcmToken();
-          if (token != null) {
-            AppLogger.i('Auth state active: registering FCM token for logged in user ${user.uid}');
-            await sendTokenToBackend(token);
-          }
-        } else {
-          AppLogger.i('Auth state unauthenticated: user logged out. Clearing local FCM token state.');
-          await _secureStorage.delete('fcm_token');
-          _lastToken = null;
-        }
-      });
-
-      // Fetch current token silently
       final currentToken = await getFcmToken();
       if (currentToken != null) {
         AppLogger.i('FCM token initialized');
@@ -239,36 +261,34 @@ class PushNotificationServiceImpl implements PushNotificationService {
     }
   }
 
-
   @override
   Future<void> unregisterTokenFromBackend() async {
     try {
       final token = await getFcmToken();
-      final user = FirebaseAuth.instance.currentUser;
+      final idToken = await _getAuthIdTokenFromWebView();
 
-      if (token != null && user != null) {
+      if (token != null && idToken != null && idToken.isNotEmpty) {
         try {
-          final idToken = await user.getIdToken();
+          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
+          final headers = <String, String>{
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $idToken',
+          };
           final sessionId = await _getActiveSessionIdFromWebView();
-          if (sessionId == null || sessionId.isEmpty) {
-            AppLogger.w('Skipping native FCM unregister because the active session ID is unavailable.');
-          } else {
-            final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
-            final response = await http.delete(
-              uri,
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer $idToken',
-                'X-Session-ID': sessionId,
-              },
-              body: jsonEncode({'token': token}),
-            ).timeout(const Duration(seconds: 10));
+          if (sessionId != null && sessionId.isNotEmpty) {
+            headers['X-Session-ID'] = sessionId;
+          }
 
-            if (response.statusCode == 200) {
-              AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister for user ${user.uid}');
-            } else {
-              AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
-            }
+          final response = await http.delete(
+            uri,
+            headers: headers,
+            body: jsonEncode({'token': token}),
+          ).timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister');
+          } else {
+            AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
           }
         } catch (netErr) {
           AppLogger.w('Native FCM token unregister network exception: $netErr');
@@ -282,16 +302,12 @@ class PushNotificationServiceImpl implements PushNotificationService {
       AppLogger.e('Error during native unregisterTokenFromBackend', e);
     }
   }
+
   @override
   Future<void> sendTokenToBackend(String token) async {
     try {
       _lastToken = token;
-
-      // Register only against the current server-authoritative session.
-      // Firebase auth may be restored before a new-device session is verified.
       await _registerTokenWithCurrentWebSession(token);
-
-      // Synchronize token with WebView JS Bridge if WebView is active
       await _syncTokenWithWebView(token);
       AppLogger.i('FCM token cached and synchronized');
     } catch (e) {
@@ -325,7 +341,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
       },
     );
 
-    // Create standard Android High Importance Channel for Heads-Up Notifications
     if (Platform.isAndroid) {
       const AndroidNotificationChannel channel = AndroidNotificationChannel(
         'eglobal_wallet_high_channel',
@@ -345,7 +360,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
   }
 
   void _setupFirebaseListeners() {
-    // 1. Listen to messages in the foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       AppLogger.i(
         'Foreground notification received: ${message.notification?.title}',
@@ -381,7 +395,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
       }
     });
 
-    // 2. Listen to notification taps when app is in background but running
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       AppLogger.i(
         'Notification tapped from background state: ${message.notification?.title}',
@@ -405,7 +418,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   void _handleNotificationPayload(Map<String, dynamic> data) {
     try {
-      // Extract route or notification type to map to the correct WebView sub-path
       final String type = (data['type'] ?? data['notification_type'] ?? '')
           .toString()
           .toLowerCase()
@@ -421,7 +433,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
         return;
       }
 
-      // Check transaction reference first for direct receipt opening
       final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
       if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
         redirectPath = '?txRef=$txRef';
@@ -470,7 +481,6 @@ class PushNotificationServiceImpl implements PushNotificationService {
         }
       }
 
-      // Enforce route allow-list validation to prevent arbitrary open redirects
       final routeToCheck = redirectPath.startsWith('?') ? redirectPath.split('?').first : redirectPath;
       if (routeToCheck.isNotEmpty && !_allowedRoutes.contains(routeToCheck)) {
         AppLogger.e(
