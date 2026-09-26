@@ -60,7 +60,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _recoveryCompleted = false;
   String? _loadingMainFrameUrl;
 
-  // Bleached Clean White constant color to eliminate black/white/colored layout flashes
   static const Color bleachWhite = Colors.white;
 
   bool _isInBackground = false;
@@ -123,7 +122,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       }
     }
   }
-
 
   Future<void> _initConnectivity() async {
     final connectivity = ref.read(connectivityServiceProvider);
@@ -230,7 +228,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
-
   Future<void> _checkConnectionAndReload() async {
     await _triggerNativeHaptic();
 
@@ -283,7 +280,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       );
     }
   }
-
 
   Future<void> _handleConnectivityChange(bool isConnected) async {
     if (_webViewController != null) {
@@ -369,7 +365,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       action: PermissionResponseAction.GRANT,
     );
   }
-
 
   String _sanitizeFileName(String rawName, [String? mimeType]) {
     var name = rawName.split('?').first.split('#').first;
@@ -636,7 +631,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       }
     }
   }
-
 
   Future<String> _getDownloadDirectoryPath() async {
     final appDocs = await getApplicationDocumentsDirectory();
@@ -948,7 +942,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     final webViewNotifier = ref.read(webViewProvider.notifier);
@@ -990,7 +983,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     UserScript(
                       source: """
                         (function() {
-                          // Complete URL and Domain Scrubber
                           function scrubUrls() {
                             try {
                               if (document.title && (
@@ -1061,11 +1053,19 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             var cls = (el.className || '').toString().toLowerCase();
                             var placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
                             var autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+                            var txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+
+                            // Match circular or rectangular digit buttons (0-9, CLEAR, backspace)
+                            if (tag === 'button' || tag === 'div' || tag === 'span' || tag === 'a' || tag === 'input') {
+                              if (/^[0-9]\$/ .test(txt) || txt === 'clear' || txt.includes('clear') || txt === 'x' || txt === '⌫') {
+                                return true;
+                              }
+                            }
 
                             if (type === 'password' || type === 'tel' || type === 'number') {
                               return true;
                             }
-                            var pinKeywords = ['pin', 'otp', 'passcode', 'access', 'txn', 'transaction', 'code', 'digit', 'keypad', 'security'];
+                            var pinKeywords = ['pin', 'otp', 'passcode', 'access', 'txn', 'transaction', 'code', 'digit', 'keypad', 'security', 'key', 'num', 'btn'];
                             for (var i = 0; i < pinKeywords.length; i++) {
                               var kw = pinKeywords[i];
                               if (id.includes(kw) || name.includes(kw) || cls.includes(kw) || placeholder.includes(kw) || autocomplete.includes(kw)) {
@@ -1076,21 +1076,17 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           }
 
                           document.addEventListener('keydown', function(e) {
-                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
-                              triggerPinHaptic();
-                            }
+                            triggerPinHaptic();
                           }, true);
 
                           document.addEventListener('input', function(e) {
-                            if (isPinRelated(e.target) || isPinRelated(document.activeElement)) {
-                              triggerPinHaptic();
-                            }
+                            triggerPinHaptic();
                           }, true);
 
-                          function handlePointer(e) {
+                          function handleGlobalPointer(e) {
                             var target = e.target;
                             while (target && target !== document.body) {
-                              if (isPinRelated(target) || (target.tagName === 'BUTTON' && isPinRelated(target.parentElement))) {
+                              if (isPinRelated(target) || target.tagName === 'BUTTON' || target.getAttribute('role') === 'button' || target.onclick) {
                                 triggerPinHaptic();
                                 break;
                               }
@@ -1098,8 +1094,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             }
                           }
 
-                          document.addEventListener('touchstart', handlePointer, { passive: true, capture: true });
-                          document.addEventListener('click', handlePointer, true);
+                          document.addEventListener('touchstart', handleGlobalPointer, { passive: true, capture: true });
+                          document.addEventListener('pointerdown', handleGlobalPointer, { passive: true, capture: true });
+                          document.addEventListener('click', handleGlobalPointer, true);
                         })();
                       """,
                       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
