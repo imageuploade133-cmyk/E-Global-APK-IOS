@@ -38,7 +38,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String? _pendingRedirectPath;
   String _currentUrl = AppStrings.baseUrl;
   String _lastSuccessfulUrl = AppStrings.baseUrl;
-  String? _offlineNavigationOriginUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
   bool _navigationGuardVisible = false;
@@ -59,6 +58,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _mainFrameLoading = false;
   bool _recoveryCompleted = false;
   String? _loadingMainFrameUrl;
+  String? _offlineNavigationOriginUrl;
 
   static const Color bleachWhite = Colors.white;
 
@@ -128,16 +128,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _connectivityInitialized = true;
     if (mounted) {
       setState(() {
-        if (!_isOnline) {
-          _hasLoadError = true;
-          _isCrashing = false;
-          _isUserRetrying = false;
-          _navigationGuardVisible = true;
-        }
+        _navigationGuardVisible = true;
       });
-      if (!initialConnectivity) {
-        _restoreSystemUi();
-      }
     }
 
     _connectivitySubscription = connectivity.onConnectivityChanged.listen((
@@ -146,10 +138,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         setState(() {
           _isOnline = isConnected;
-          if (!isConnected && !_webViewReady) {
-            _hasLoadError = true;
-            _isUserRetrying = false;
-          }
         });
         _handleConnectivityChange(isConnected);
       }
@@ -1794,53 +1782,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _webViewReady = false;
                       _navigationGuardVisible = false;
                       _restoreSystemUi();
-
-                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
-                        _offlineNavigationRestoring = true;
-                        _offlineNavigationInProgress = false;
-                        _stopLoadingTimer();
-                        final previousUrl = _offlineNavigationOriginUrl;
-                        if (previousUrl != null) {
-                          try {
-                            if (await controller.canGoBack()) {
-                              await controller.goBack();
-                              return;
-                            }
-                            await controller.loadUrl(
-                              urlRequest: URLRequest(url: WebUri(previousUrl)),
-                            );
-                            return;
-                          } catch (e) {
-                            AppLogger.e('Failed to restore cached page after offline navigation', e);
-                          }
-                        }
-                        if (mounted) {
-                          _navigationGuardVisible = false;
-                        setState(() {
-                            _hasLoadError = true;
-                            _isUserRetrying = false;
-                          });
-                        }
-                        return;
-                      }
-
-                      if (_isUserRetrying) return;
-                      if (!_mainFrameLoading) return;
-
-                      final attemptAtCallback = _loadAttemptId;
-                      final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url.toString();
-
                       _stopLoadingTimer();
+
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
 
-                      if (mounted &&
-                          _mainFrameLoading &&
-                          _loadAttemptId == attemptAtCallback &&
-                          _loadingMainFrameUrl == loadingUrlAtCallback &&
-                          (loadingUrlAtCallback == null ||
-                              requestUrl == loadingUrlAtCallback)) {
+                      if (mounted) {
                         _mainFrameLoading = false;
                         _recoveryAttemptId = null;
                         setState(() {
@@ -1861,52 +1808,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _webViewReady = false;
                       _navigationGuardVisible = false;
                       _restoreSystemUi();
-                      if (_offlineNavigationInProgress && !_offlineNavigationRestoring) {
-                        _offlineNavigationRestoring = true;
-                        _offlineNavigationInProgress = false;
-                        _stopLoadingTimer();
-                        final previousUrl = _offlineNavigationOriginUrl;
-                        if (previousUrl != null) {
-                          try {
-                            if (await controller.canGoBack()) {
-                              await controller.goBack();
-                              return;
-                            }
-                            await controller.loadUrl(
-                              urlRequest: URLRequest(url: WebUri(previousUrl)),
-                            );
-                            return;
-                          } catch (e) {
-                            AppLogger.e('Failed to restore cached page after offline HTTP error', e);
-                          }
-                        }
-                        if (mounted) {
-                          setState(() {
-                            _hasLoadError = true;
-                            _isUserRetrying = false;
-                          });
-                        }
-                        return;
-                      }
-
-                      if (_isUserRetrying) return;
-                      if (!_mainFrameLoading) return;
-
-                      final attemptAtCallback = _loadAttemptId;
-                      final loadingUrlAtCallback = _loadingMainFrameUrl;
-                      final requestUrl = request.url.toString();
-
                       _stopLoadingTimer();
-                      _restoreSystemUi();
+
                       final connectivity = ref.read(connectivityServiceProvider);
                       final isConnected = await connectivity.isConnected;
 
-                      if (mounted &&
-                          _mainFrameLoading &&
-                          _loadAttemptId == attemptAtCallback &&
-                          _loadingMainFrameUrl == loadingUrlAtCallback &&
-                          (loadingUrlAtCallback == null ||
-                              requestUrl == loadingUrlAtCallback)) {
+                      if (mounted) {
                         _mainFrameLoading = false;
                         _recoveryAttemptId = null;
                         setState(() {
