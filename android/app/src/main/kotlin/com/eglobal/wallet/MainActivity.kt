@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,9 +25,29 @@ class MainActivity: FlutterFragmentActivity() {
 
     private val CHANNEL = "com.eglobal.wallet/mediastore"
     private val HAPTICS_CHANNEL = "com.eglobal.wallet/haptics"
+    private val SECURITY_CHANNEL = "com.eglobal.wallet/security"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURITY_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "isDeveloperModeEnabled") {
+                try {
+                    val devMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                        Settings.Global.getInt(contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
+                    } else {
+                        @Suppress("DEPRECATION")
+                        Settings.Secure.getInt(contentResolver, Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
+                    }
+                    result.success(devMode)
+                } catch (e: Exception) {
+                    result.success(false)
+                }
+            } else {
+                result.notImplemented()
+            }
+        }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HAPTICS_CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "vibrate") {
                 try {

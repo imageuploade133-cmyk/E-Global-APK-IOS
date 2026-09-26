@@ -55,10 +55,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   int _loadAttemptId = 0;
   int? _recoveryAttemptId;
-  bool _mainFrameLoading = false;
   bool _recoveryCompleted = false;
-  String? _loadingMainFrameUrl;
-  String? _offlineNavigationOriginUrl;
 
   static const Color bleachWhite = Colors.white;
 
@@ -180,7 +177,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
         AppLogger.e('Page loading timed out (slow connection)');
         _restoreSystemUi();
         final wasUserRetrying = _isUserRetrying;
-        _mainFrameLoading = false;
         _recoveryAttemptId = null;
         setState(() {
           _hasLoadError = true;
@@ -224,7 +220,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     final recoveryAttemptId = ++_loadAttemptId;
     _recoveryAttemptId = recoveryAttemptId;
     _recoveryCompleted = false;
-    _mainFrameLoading = true;
 
     if (mounted) {
       setState(() {
@@ -239,7 +234,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
     if (!isConnected) {
       if (mounted && _recoveryAttemptId == recoveryAttemptId) {
-        _mainFrameLoading = false;
         setState(() {
           _isOnline = false;
           _hasLoadError = true;
@@ -1160,7 +1154,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       if (!isConnectedNow &&
                           !isPreviouslyLoaded &&
                           !isHistoryNavigation) {
-                        _offlineNavigationOriginUrl = _lastSuccessfulUrl;
                         _offlineNavigationInProgress = false;
                         _offlineNavigationRestoring = false;
                         _stopLoadingTimer();
@@ -1665,10 +1658,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                   },
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
-                    _mainFrameLoading = true;
                     _webViewReady = false;
                     _navigationGuardVisible = true;
-                    _loadingMainFrameUrl = url?.toString();
                     if (_isUserRetrying) {
                       _recoveryAttemptId = _loadAttemptId;
                       _recoveryCompleted = false;
@@ -1687,8 +1678,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                     final completedAttemptId = _loadAttemptId;
                     final completedRecoveryId = _recoveryAttemptId;
-                    _mainFrameLoading = false;
-                    _loadingMainFrameUrl = null;
 
                     final urlString = url?.toString().toLowerCase() ?? '';
                     final isErrorUrl = urlString.isEmpty ||
@@ -1722,7 +1711,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         !isErrorUrl &&
                         isTrustedUrl) {
                       _offlineNavigationInProgress = false;
-                      _offlineNavigationOriginUrl = null;
                       _currentUrl = url.toString();
                       _lastSuccessfulUrl = url.toString();
                       setState(() {
@@ -1812,7 +1800,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final isConnected = await connectivity.isConnected;
 
                       if (mounted) {
-                        _mainFrameLoading = false;
                         _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
@@ -1838,7 +1825,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       final isConnected = await connectivity.isConnected;
 
                       if (mounted) {
-                        _mainFrameLoading = false;
                         _recoveryAttemptId = null;
                         setState(() {
                           _isOnline = isConnected;
