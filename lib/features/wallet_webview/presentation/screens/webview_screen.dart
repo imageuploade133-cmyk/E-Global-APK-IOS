@@ -64,7 +64,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   bool _isInBackground = false;
   bool _hasRestoredSystemUi = false;
-  Timer? _startupGuardTimer;
 
   void _restoreSystemUi() {
     if (_hasRestoredSystemUi) return;
@@ -101,7 +100,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     _connectivitySubscription?.cancel();
     _redirectSubscription?.cancel();
     _loadingTimeoutTimer?.cancel();
-    _startupGuardTimer?.cancel();
     super.dispose();
   }
 
@@ -148,6 +146,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       if (mounted) {
         setState(() {
           _isOnline = isConnected;
+          if (!isConnected && !_webViewReady) {
+            _hasLoadError = true;
+            _isUserRetrying = false;
+          }
         });
         _handleConnectivityChange(isConnected);
       }
