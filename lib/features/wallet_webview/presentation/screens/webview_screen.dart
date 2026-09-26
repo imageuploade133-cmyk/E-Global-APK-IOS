@@ -1331,6 +1331,24 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
 
                     controller.addJavaScriptHandler(
+                      handlerName: 'registerFcmToken',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected registerFcmToken from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final token = await pushService.getFcmToken();
+                        if (token != null) {
+                          await pushService.sendTokenToBackend(token);
+                          return true;
+                        }
+                        return false;
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
                       handlerName: 'requestNotificationPermission',
                       callback: (args) async {
                         if (!await _isCurrentUrlTrusted(controller)) {
@@ -1768,6 +1786,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                     if (_webViewReady) {
                       _restoreSystemUi();
+                      // Trigger background FCM token sync after page load stops
+                      final pushService = ref.read(pushNotificationServiceProvider);
+                      final token = await pushService.getFcmToken();
+                      if (token != null) {
+                        unawaited(pushService.sendTokenToBackend(token));
+                      }
                     }
                     await _injectSecurityAndAutofillScripts(controller);
                   },
