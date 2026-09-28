@@ -37,7 +37,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   bool _connectivityInitialized = false;
   String? _pendingRedirectPath;
   String _currentUrl = AppStrings.baseUrl;
-  String _lastSuccessfulUrl = AppStrings.baseUrl;
   bool _offlineNavigationInProgress = false;
   bool _offlineNavigationRestoring = false;
   bool _navigationGuardVisible = false;
@@ -1694,7 +1693,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     if (fullyLoadedTrustedPage) {
                       final loadedUrl = url.toString();
                       _successfullyLoadedUrls.add(loadedUrl);
-                      _lastSuccessfulUrl = loadedUrl;
                       _webViewReady = true;
                       _navigationGuardVisible = false;
                     } else {
@@ -1712,7 +1710,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         isTrustedUrl) {
                       _offlineNavigationInProgress = false;
                       _currentUrl = url.toString();
-                      _lastSuccessfulUrl = url.toString();
                       setState(() {
                         _isOnline = false;
                         _hasLoadError = false;
@@ -1736,7 +1733,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           _offlineNavigationInProgress = false;
                           _offlineNavigationRestoring = false;
                           _currentUrl = url.toString();
-                          _lastSuccessfulUrl = url.toString();
                           setState(() {
                             _isOnline = true;
                             _hasLoadError = false;
@@ -1763,7 +1759,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         });
                       } else {
                         _currentUrl = url.toString();
-                        _lastSuccessfulUrl = url.toString();
                         _offlineNavigationInProgress = false;
                         _offlineNavigationRestoring = false;
                         setState(() {
