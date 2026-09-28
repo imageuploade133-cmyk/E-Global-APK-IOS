@@ -54,6 +54,9 @@ class PushNotificationServiceImpl implements PushNotificationService {
         source: """
           (async function() {
             try {
+              if (typeof window.__getFirebaseAuthToken === 'function') {
+                return await window.__getFirebaseAuthToken();
+              }
               if (window.firebase && window.firebase.auth && window.firebase.auth().currentUser) {
                 return await window.firebase.auth().currentUser.getIdToken(true);
               }
