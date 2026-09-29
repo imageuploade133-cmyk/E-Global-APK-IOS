@@ -3,6 +3,7 @@ import '../constants/app_strings.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -45,6 +46,17 @@ class PushNotificationServiceImpl implements PushNotificationService {
       _syncTokenWithWebView(token);
       unawaited(_registerTokenWithCurrentWebSession(token));
     }
+  }
+
+  Future<String?> _getAuthIdToken() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final idToken = await user.getIdToken();
+        if (idToken != null && idToken.isNotEmpty) return idToken;
+      }
+    } catch (_) {}
+    return await _getAuthIdTokenFromWebView();
   }
 
   Future<String?> _getAuthIdTokenFromWebView() async {
@@ -129,7 +141,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
         Duration(seconds: 10),
       ];
       for (var attempt = 0; attempt < delays.length; attempt++) {
-        final idToken = await _getAuthIdTokenFromWebView();
+        final idToken = await _getAuthIdToken();
         final sessionId = await _getActiveSessionIdFromWebView();
 
         if (idToken == null || idToken.isEmpty) {
@@ -287,11 +299,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
   Future<void> unregisterTokenFromBackend() async {
     try {
       final token = await getFcmToken();
-      final idToken = await _getAuthIdTokenFromWebView();
+      final idToken = await _getAuthIdToken();
 
       if (token != null && idToken != null && idToken.isNotEmpty) {
         try {
-          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/unregister');
+          final uri = Uri.parse('${AppStrings.baseUrl}api/fcm/register');
           final headers = <String, String>{
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $idToken',
