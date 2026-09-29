@@ -182,10 +182,27 @@ class MainActivity: FlutterFragmentActivity() {
                 tempFile.delete()
             }
         } else {
-            if (tempFile.exists()) {
+            try {
+                @Suppress("DEPRECATION")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val targetDir = File(downloadsDir, "E-Global Pay")
+                if (!targetDir.exists()) {
+                    targetDir.mkdirs()
+                }
+                val targetFile = File(targetDir, fileName)
+                FileInputStream(tempFile).use { input ->
+                    targetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
                 tempFile.delete()
+                return targetFile.absolutePath
+            } catch (e: Exception) {
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
+                return null
             }
-            return null
         }
     }
 }
