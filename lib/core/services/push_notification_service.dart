@@ -38,6 +38,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
   InAppWebViewController? _webViewController;
   String? _lastToken;
   bool _backendRegistrationInProgress = false;
+  bool _isInitialized = false;
 
   int _badgeCount = 0;
   final StreamController<int> _badgeCountController =
@@ -248,6 +249,12 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   @override
   Future<void> initialize() async {
+    if (_isInitialized) {
+      AppLogger.i('PushNotificationService already initialized.');
+      return;
+    }
+    _isInitialized = true;
+
     try {
       await _initializeLocalNotifications();
 
@@ -295,6 +302,15 @@ class PushNotificationServiceImpl implements PushNotificationService {
   @override
   Future<void> requestPermission() async {
     try {
+      if (Platform.isAndroid) {
+        final status = await Permission.notification.status;
+        AppLogger.i('Android notification permission status before request: $status');
+        if (!status.isGranted && !status.isPermanentlyDenied) {
+          final requestedStatus = await Permission.notification.request();
+          AppLogger.i('Android notification permission request result: $requestedStatus');
+        }
+      }
+
       final NotificationSettings settings = await _fcm.requestPermission(
         alert: true,
         announcement: false,
@@ -305,21 +321,14 @@ class PushNotificationServiceImpl implements PushNotificationService {
         sound: true,
       );
 
-      if (Platform.isAndroid) {
-        final status = await Permission.notification.status;
-        if (!status.isGranted && !status.isPermanentlyDenied) {
-          await Permission.notification.request();
-        }
-      }
-
       if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-        AppLogger.i('User granted notification permissions.');
+        AppLogger.i('User granted FCM notification permissions.');
       } else if (settings.authorizationStatus ==
           AuthorizationStatus.provisional) {
-        AppLogger.i('User granted provisional notification permissions.');
+        AppLogger.i('User granted provisional FCM notification permissions.');
       } else {
         AppLogger.i(
-          'User declined or has not accepted notification permissions.',
+          'User declined or has not accepted FCM notification permissions.',
         );
       }
     } catch (e) {
