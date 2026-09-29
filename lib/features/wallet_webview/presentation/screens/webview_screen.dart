@@ -114,6 +114,33 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _isInBackground = false;
         });
       }
+      _triggerLiveAppRefresh();
+    }
+  }
+
+  void _triggerLiveAppRefresh() {
+    final controller = _webViewController;
+    if (controller != null) {
+      try {
+        controller.evaluateJavascript(source: """
+          (function() {
+            try {
+              if (typeof window !== 'undefined' && window.dispatchEvent) {
+                window.dispatchEvent(new CustomEvent('app-refresh'));
+              }
+            } catch(e) {}
+          })();
+        """);
+
+        final pushService = ref.read(pushNotificationServiceProvider);
+        pushService.getFcmToken().then((token) {
+          if (token != null) {
+            pushService.sendTokenToBackend(token);
+          }
+        });
+      } catch (e) {
+        AppLogger.e('Error triggering live app refresh on resume', e);
+      }
     }
   }
 
@@ -161,6 +188,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
   void _handleNotificationRedirect(String path) {
     if (_webViewController != null && path.isNotEmpty) {
+      _triggerLiveAppRefresh();
       final fullUrl = _buildRedirectUrl(path);
       _startLoadingTimer();
       _webViewController!.loadUrl(urlRequest: URLRequest(url: WebUri(fullUrl)));
@@ -268,7 +296,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     if (_webViewController != null) {
       await _webViewController!.setSettings(
         settings: InAppWebViewSettings(
-          cacheMode: CacheMode.LOAD_CACHE_ELSE_NETWORK,
+          cacheMode: isConnected ? CacheMode.LOAD_DEFAULT : CacheMode.LOAD_CACHE_ELSE_NETWORK,
           networkAvailable: isConnected,
         ),
       );
@@ -276,7 +304,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   CacheMode _getCurrentCacheMode() {
-    return CacheMode.LOAD_CACHE_ELSE_NETWORK;
+    return _isOnline ? CacheMode.LOAD_DEFAULT : CacheMode.LOAD_CACHE_ELSE_NETWORK;
   }
 
   void _showRuntimePermissionDeniedDialog(Permission permission) {
