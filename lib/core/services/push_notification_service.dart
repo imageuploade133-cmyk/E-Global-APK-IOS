@@ -532,6 +532,9 @@ class PushNotificationServiceImpl implements PushNotificationService {
     'transaction',
   };
 
+  String? _lastRedirectPath;
+  DateTime? _lastRedirectTime;
+
   void _handleNotificationPayload(Map<String, dynamic> data) {
     try {
       final String type = (data['type'] ?? data['notification_type'] ?? '')
@@ -612,6 +615,16 @@ class PushNotificationServiceImpl implements PushNotificationService {
         );
         redirectPath = 'notifications';
       }
+
+      final now = DateTime.now();
+      if (_lastRedirectPath == redirectPath &&
+          _lastRedirectTime != null &&
+          now.difference(_lastRedirectTime!) < const Duration(seconds: 2)) {
+        AppLogger.i('Ignoring duplicate notification redirect: $redirectPath');
+        return;
+      }
+      _lastRedirectPath = redirectPath;
+      _lastRedirectTime = now;
 
       _redirectController.add(redirectPath);
     } catch (e) {
