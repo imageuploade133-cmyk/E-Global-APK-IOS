@@ -10,6 +10,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../security/secure_storage_service.dart';
 import '../utils/logger.dart';
+import 'notification_service.dart';
 
 abstract class PushNotificationService {
   Future<void> initialize();
@@ -20,6 +21,12 @@ abstract class PushNotificationService {
   Future<void> sendTokenToBackend(String token);
   Future<void> unregisterTokenFromBackend();
   void setWebViewController(InAppWebViewController controller);
+
+  Stream<int> get badgeCountStream;
+  int get badgeCount;
+  Future<void> setBadgeCount(int count);
+  Future<void> resetBadgeCount();
+  Future<void> incrementBadgeCount();
 }
 
 class PushNotificationServiceImpl implements PushNotificationService {
@@ -32,11 +39,42 @@ class PushNotificationServiceImpl implements PushNotificationService {
   String? _lastToken;
   bool _backendRegistrationInProgress = false;
 
+  int _badgeCount = 0;
+  final StreamController<int> _badgeCountController =
+      StreamController<int>.broadcast();
+
   final StreamController<String> _redirectController =
       StreamController<String>.broadcast();
 
   PushNotificationServiceImpl({required SecureStorageService secureStorage})
-    : _secureStorage = secureStorage;
+    : _secureStorage = secureStorage {
+    NotificationService().attachPushNotificationService(this);
+  }
+
+  @override
+  Stream<int> get badgeCountStream => _badgeCountController.stream;
+
+  @override
+  int get badgeCount => _badgeCount;
+
+  @override
+  Future<void> setBadgeCount(int count) async {
+    _badgeCount = count < 0 ? 0 : count;
+    await _secureStorage.write('badge_count', _badgeCount.toString());
+    if (!_badgeCountController.isClosed) {
+      _badgeCountController.add(_badgeCount);
+    }
+  }
+
+  @override
+  Future<void> resetBadgeCount() async {
+    await setBadgeCount(0);
+  }
+
+  @override
+  Future<void> incrementBadgeCount() async {
+    await setBadgeCount(_badgeCount + 1);
+  }
 
   @override
   void setWebViewController(InAppWebViewController controller) {
@@ -225,6 +263,14 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       _setupFirebaseListeners();
 
+      final storedBadge = await _secureStorage.read('badge_count');
+      if (storedBadge != null) {
+        _badgeCount = int.tryParse(storedBadge) ?? 0;
+        if (!_badgeCountController.isClosed) {
+          _badgeCountController.add(_badgeCount);
+        }
+      }
+
       final RemoteMessage? initialMessage = await _fcm.getInitialMessage();
       if (initialMessage != null) {
         _handleNotificationPayload(initialMessage.data);
@@ -320,9 +366,9 @@ class PushNotificationServiceImpl implements PushNotificationService {
           ).timeout(const Duration(seconds: 10));
 
           if (response.statusCode == 200) {
-            AppLogger.i('Native FCM token successfully unregistered from backend /api/fcm/unregister');
+            AppLogger.i('Native FCM token successfully unregistered from backend DELETE /api/fcm/register');
           } else {
-            AppLogger.w('Backend /api/fcm/unregister returned status code: ${response.statusCode}');
+            AppLogger.w('Backend DELETE /api/fcm/register returned status code: ${response.statusCode}');
           }
         } catch (netErr) {
           AppLogger.w('Native FCM token unregister network exception: $netErr');
@@ -330,8 +376,10 @@ class PushNotificationServiceImpl implements PushNotificationService {
       }
 
       await _secureStorage.delete('fcm_token');
+      await _secureStorage.delete('badge_count');
       _lastToken = null;
-      AppLogger.i('FCM token association cleared locally');
+      await resetBadgeCount();
+      AppLogger.i('FCM token association and badge count cleared locally');
     } catch (e) {
       AppLogger.e('Error during native unregisterTokenFromBackend', e);
     }
@@ -413,6 +461,8 @@ class PushNotificationServiceImpl implements PushNotificationService {
         } catch (_) {}
       }
 
+      unawaited(incrementBadgeCount());
+
       final notification = message.notification;
       final android = message.notification?.android;
 
@@ -449,6 +499,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
       AppLogger.i(
         'Notification tapped from background state: ${message.notification?.title}',
       );
+      unawaited(resetBadgeCount());
       _handleNotificationPayload(message.data);
     });
   }
