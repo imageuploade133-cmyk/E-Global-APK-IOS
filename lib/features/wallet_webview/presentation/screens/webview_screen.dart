@@ -187,11 +187,23 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   }
 
   void _handleNotificationRedirect(String path) {
-    if (_webViewController != null && path.isNotEmpty) {
+    if (path.isEmpty) return;
+
+    if (_webViewController != null && _webViewReady) {
       _triggerLiveAppRefresh();
       final fullUrl = _buildRedirectUrl(path);
       _startLoadingTimer();
-      _webViewController!.loadUrl(urlRequest: URLRequest(url: WebUri(fullUrl)));
+      _webViewController!.evaluateJavascript(source: """
+        (function() {
+          try {
+            if (window.location.href !== '$fullUrl') {
+              window.location.href = '$fullUrl';
+            }
+          } catch(e) {
+            window.location.href = '$fullUrl';
+          }
+        })();
+      """);
     } else {
       _pendingRedirectPath = path;
     }
@@ -1677,11 +1689,6 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       },
                     );
 
-                    if (_pendingRedirectPath != null) {
-                      final path = _pendingRedirectPath!;
-                      _pendingRedirectPath = null;
-                      _handleNotificationRedirect(path);
-                    }
                   },
                   onLoadStart: (controller, url) {
                     _loadAttemptId++;
@@ -1723,6 +1730,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       _successfullyLoadedUrls.add(loadedUrl);
                       _webViewReady = true;
                       _navigationGuardVisible = false;
+
+                      if (_pendingRedirectPath != null) {
+                        final path = _pendingRedirectPath!;
+                        _pendingRedirectPath = null;
+                        _handleNotificationRedirect(path);
+                      }
                     } else {
                       _webViewReady = false;
                       _navigationGuardVisible = true;
