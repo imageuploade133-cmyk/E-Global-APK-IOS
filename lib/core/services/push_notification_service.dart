@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../security/secure_storage_service.dart';
 import '../utils/logger.dart';
 
@@ -199,6 +200,17 @@ class PushNotificationServiceImpl implements PushNotificationService {
   Future<void> initialize() async {
     try {
       await _initializeLocalNotifications();
+
+      // Request notification permissions explicitly on startup
+      await requestPermission();
+
+      // Enable foreground notification presentation options for heads-up alert banners
+      await _fcm.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
       _setupFirebaseListeners();
 
       final RemoteMessage? initialMessage = await _fcm.getInitialMessage();
@@ -234,6 +246,13 @@ class PushNotificationServiceImpl implements PushNotificationService {
         provisional: false,
         sound: true,
       );
+
+      if (Platform.isAndroid) {
+        final status = await Permission.notification.status;
+        if (!status.isGranted && !status.isPermanentlyDenied) {
+          await Permission.notification.request();
+        }
+      }
 
       if (settings.authorizationStatus == AuthorizationStatus.authorized) {
         AppLogger.i('User granted notification permissions.');
