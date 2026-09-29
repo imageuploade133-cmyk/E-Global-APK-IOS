@@ -368,6 +368,20 @@ class PushNotificationServiceImpl implements PushNotificationService {
         'Foreground notification received: ${message.notification?.title}',
       );
 
+      if (_webViewController != null) {
+        try {
+          _webViewController!.evaluateJavascript(source: """
+            (function() {
+              try {
+                if (typeof window !== 'undefined' && window.dispatchEvent) {
+                  window.dispatchEvent(new CustomEvent('app-refresh'));
+                }
+              } catch(e) {}
+            })();
+          """);
+        } catch (_) {}
+      }
+
       final notification = message.notification;
       final android = message.notification?.android;
 
