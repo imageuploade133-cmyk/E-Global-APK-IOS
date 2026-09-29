@@ -1,11 +1,15 @@
 package com.eglobal.wallet
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ContentValues
+import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
+import androidx.core.app.NotificationCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -20,6 +24,32 @@ class MainActivity: FlutterFragmentActivity() {
             // Disable Android Autofill for the entire app view hierarchy.
             window.decorView.importantForAutofill =
                 android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+
+            createHighImportanceNotificationChannel()
+        }
+    }
+
+    private fun createHighImportanceNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channelId = "eglobal_wallet_high_channel"
+            val channelName = "E-Global Wallet Notifications"
+            val channelDescription = "This channel is used for important wallet updates."
+            val importance = NotificationManager.IMPORTANCE_HIGH
+
+            val channel = NotificationChannel(channelId, channelName, importance).apply {
+                description = channelDescription
+                enableVibration(true)
+                enableLights(true)
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+                val audioAttributes = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, audioAttributes)
+            }
+
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.createNotificationChannel(channel)
         }
     }
 
