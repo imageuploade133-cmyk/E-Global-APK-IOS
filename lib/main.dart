@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'core/utils/logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
+import 'core/services/core_providers.dart';
 import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
 import 'features/auth/presentation/screens/biometric_login_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
@@ -151,6 +152,19 @@ class _EGlobalWalletAppState extends ConsumerState<EGlobalWalletApp>
     _devModeTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _checkDevMode();
     });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initPushNotificationsOnStartup();
+    });
+  }
+
+  void _initPushNotificationsOnStartup() {
+    try {
+      final pushService = ref.read(pushNotificationServiceProvider);
+      pushService.initialize();
+    } catch (e) {
+      AppLogger.e('Failed to initialize pushNotificationServiceProvider on app startup', e);
+    }
   }
 
   @override
