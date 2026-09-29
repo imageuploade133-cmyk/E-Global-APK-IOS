@@ -18,6 +18,7 @@ abstract class PushNotificationService {
   Future<String?> getFcmToken();
   Stream<String> get onTokenRefresh;
   Stream<String> get onNotificationRedirectStream;
+  String? consumeInitialPendingRedirect();
   Future<void> sendTokenToBackend(String token);
   Future<void> unregisterTokenFromBackend();
   void setWebViewController(InAppWebViewController controller);
@@ -37,8 +38,19 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   InAppWebViewController? _webViewController;
   String? _lastToken;
+  String? _initialPendingRedirectPath;
   bool _backendRegistrationInProgress = false;
   bool _isInitialized = false;
+
+  @override
+  String? consumeInitialPendingRedirect() {
+    final path = _initialPendingRedirectPath;
+    _initialPendingRedirectPath = null;
+    if (path != null) {
+      AppLogger.i('Consumed initial pending notification redirect: $path');
+    }
+    return path;
+  }
 
   int _badgeCount = 0;
   final StreamController<int> _badgeCountController =
@@ -280,6 +292,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
       final RemoteMessage? initialMessage = await _fcm.getInitialMessage();
       if (initialMessage != null) {
+        final path = _extractRedirectPath(initialMessage.data);
+        if (path.isNotEmpty && path != 'session_revoked') {
+          AppLogger.i('Setting initial pending notification redirect from getInitialMessage: $path');
+          _initialPendingRedirectPath = path;
+        }
         _handleNotificationPayload(initialMessage.data);
       }
 
@@ -535,7 +552,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
   String? _lastRedirectPath;
   DateTime? _lastRedirectTime;
 
-  void _handleNotificationPayload(Map<String, dynamic> data) {
+  String _extractRedirectPath(Map<String, dynamic> data) {
     try {
       final String type = (data['type'] ?? data['notification_type'] ?? '')
           .toString()
@@ -545,11 +562,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
       String redirectPath = '';
 
       if (type == 'session_revoked') {
-        AppLogger.w('Received session_revoked push notification. Clearing local token state.');
-        _secureStorage.delete('fcm_token');
-        _lastToken = null;
-        _redirectController.add('notifications');
-        return;
+        return 'session_revoked';
       }
 
       final txRef = (data['txRef'] ??
@@ -614,6 +627,26 @@ class PushNotificationServiceImpl implements PushNotificationService {
           'Rejected untrusted notification route path: $redirectPath',
         );
         redirectPath = 'notifications';
+      }
+
+      return redirectPath;
+    } catch (e) {
+      AppLogger.e('Error extracting redirect path', e);
+      return '';
+    }
+  }
+
+  void _handleNotificationPayload(Map<String, dynamic> data) {
+    try {
+      final redirectPath = _extractRedirectPath(data);
+      if (redirectPath.isEmpty) return;
+
+      if (redirectPath == 'session_revoked') {
+        AppLogger.w('Received session_revoked push notification. Clearing local token state.');
+        _secureStorage.delete('fcm_token');
+        _lastToken = null;
+        _redirectController.add('notifications');
+        return;
       }
 
       final now = DateTime.now();

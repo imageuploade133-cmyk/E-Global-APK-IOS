@@ -177,6 +177,12 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     });
 
     await pushService.initialize();
+
+    final initialPath = pushService.consumeInitialPendingRedirect();
+    if (initialPath != null && initialPath.isNotEmpty) {
+      AppLogger.i('Handling consumed initial pending notification in WebviewScreen: $initialPath');
+      _handleNotificationRedirect(initialPath);
+    }
   }
 
   String _buildRedirectUrl(String path) {
