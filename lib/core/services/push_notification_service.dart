@@ -408,7 +408,7 @@ class PushNotificationServiceImpl implements PushNotificationService {
 
   Future<void> _initializeLocalNotifications() async {
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@drawable/ic_notification');
+        AndroidInitializationSettings('ic_notification');
 
     const DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
@@ -475,6 +475,11 @@ class PushNotificationServiceImpl implements PushNotificationService {
       final notification = message.notification;
       final android = message.notification?.android;
 
+      String smallIcon = 'ic_notification';
+      if (android?.smallIcon != null && android!.smallIcon!.isNotEmpty) {
+        smallIcon = android.smallIcon!.replaceFirst('@drawable/', '');
+      }
+
       if (notification != null) {
         _localNotifications.show(
           notification.hashCode,
@@ -488,10 +493,9 @@ class PushNotificationServiceImpl implements PushNotificationService {
                   'This channel is used for important wallet updates.',
               importance: Importance.max,
               priority: Priority.max,
-              icon: android?.smallIcon ?? '@drawable/ic_notification',
+              icon: smallIcon,
               playSound: true,
               enableVibration: true,
-              fullScreenIntent: true,
             ),
             iOS: const DarwinNotificationDetails(
               presentAlert: true,
@@ -524,6 +528,8 @@ class PushNotificationServiceImpl implements PushNotificationService {
     'orders',
     'kyc',
     'security',
+    'receipt',
+    'transaction',
   };
 
   void _handleNotificationPayload(Map<String, dynamic> data) {
@@ -543,7 +549,15 @@ class PushNotificationServiceImpl implements PushNotificationService {
         return;
       }
 
-      final txRef = (data['txRef'] ?? data['reference'] ?? data['transactionReference'] ?? '').toString().trim();
+      final txRef = (data['txRef'] ??
+              data['reference'] ??
+              data['transactionReference'] ??
+              data['transactionId'] ??
+              data['id'] ??
+              data['txId'] ??
+              '')
+          .toString()
+          .trim();
       if (txRef.isNotEmpty && RegExp(r'^[A-Za-z0-9_\-]+$').hasMatch(txRef)) {
         redirectPath = '?txRef=$txRef';
       } else {

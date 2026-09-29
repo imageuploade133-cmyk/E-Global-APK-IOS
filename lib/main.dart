@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,7 +27,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         FlutterLocalNotificationsPlugin();
 
     const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@drawable/ic_notification');
+        AndroidInitializationSettings('ic_notification');
     const DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
           requestAlertPermission: false,
@@ -49,7 +50,15 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final String body = notification?.body ??
         (data['body'] ?? data['message'] ?? '') .toString();
 
-    if (body.isNotEmpty || notification != null) {
+    // Firebase Android SDK automatically displays system notifications when message.notification != null.
+    // To prevent duplicate notifications, only show local notification for data-only push messages.
+    if (notification == null && body.isNotEmpty) {
+      String smallIcon = 'ic_notification';
+      final customIcon = data['smallIcon']?.toString();
+      if (customIcon != null && customIcon.isNotEmpty) {
+        smallIcon = customIcon.replaceFirst('@drawable/', '');
+      }
+
       await localNotifications.show(
         message.hashCode,
         title,
@@ -62,11 +71,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
                 'This channel is used for important wallet updates.',
             importance: Importance.max,
             priority: Priority.max,
-            icon: message.notification?.android?.smallIcon ??
-                '@drawable/ic_notification',
+            icon: smallIcon,
             playSound: true,
             enableVibration: true,
-            fullScreenIntent: true,
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,
@@ -74,6 +81,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
             presentSound: true,
           ),
         ),
+        payload: jsonEncode(data),
       );
     }
   } catch (e) {
