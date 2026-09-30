@@ -2312,7 +2312,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                 ),
               if (_isDownloading)
                 Align(
-                  alignment: Alignment.bottomCenter,
+                  alignment: Alignment.topCenter,
                   child: DownloadProgressBar(
                     progress: _downloadProgress,
                     fileName: _downloadingFileName,
