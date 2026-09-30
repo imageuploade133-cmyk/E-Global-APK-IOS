@@ -1278,6 +1278,39 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                           document.addEventListener('touchstart', handlePointer, { passive: true, capture: true });
                           document.addEventListener('click', handlePointer, true);
+
+                          if (navigator) {
+                            navigator.canShare = function(data) {
+                              return true;
+                            };
+
+                            navigator.share = async function(data) {
+                              if (!data) return Promise.resolve();
+                              try {
+                                var payload = {
+                                  title: data.title || '',
+                                  text: data.text || '',
+                                  url: data.url || ''
+                                };
+
+                                if (data.files && data.files.length > 0) {
+                                  var file = data.files[0];
+                                  payload.fileName = file.name || 'receipt.pdf';
+                                  payload.base64 = await new Promise(function(resolve) {
+                                    var reader = new FileReader();
+                                    reader.onloadend = function() { resolve(reader.result); };
+                                    reader.onerror = function() { resolve(null); };
+                                    reader.readAsDataURL(file);
+                                  });
+                                }
+
+                                if (window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
+                                  return await window.flutter_inappwebview.callHandler('share', payload);
+                                }
+                              } catch(e) {}
+                              return Promise.resolve();
+                            };
+                          }
                         })();
                       """,
                       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
