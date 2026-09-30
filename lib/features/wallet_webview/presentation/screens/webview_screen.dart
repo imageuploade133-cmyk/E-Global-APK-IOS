@@ -471,6 +471,52 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     return null;
   }
 
+  Future<void> _openAndShareDownloadedFile(
+    String localFilePath,
+    String displaySavedName,
+    String? openPath,
+  ) async {
+    try {
+      final targetToOpen = openPath ?? localFilePath;
+
+      try {
+        await OpenFilex.open(targetToOpen);
+      } catch (openErr) {
+        AppLogger.w('Could not auto-open file: $openErr');
+      }
+
+      try {
+        await Share.shareXFiles(
+          [XFile(localFilePath)],
+          text: 'E-Global Pay Document',
+        );
+      } catch (shareErr) {
+        AppLogger.w('Could not auto-share file: $shareErr');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Downloaded: $displaySavedName'),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Share',
+              textColor: Colors.orange,
+              onPressed: () async {
+                await Share.shareXFiles(
+                  [XFile(localFilePath)],
+                  text: 'E-Global Pay Document',
+                );
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      AppLogger.e('Error opening/sharing downloaded file', e);
+    }
+  }
+
   Future<void> _handleDataUrlDownload(String dataUrl, String? mimeTypeOverride) async {
     try {
       setState(() {
@@ -522,18 +568,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _downloadProgress = 0.0;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Downloaded: $displaySavedName'),
-            action: SnackBarAction(
-              label: 'Open',
-              textColor: Colors.orange,
-              onPressed: () async {
-                await OpenFilex.open(targetOpenPath);
-              },
-            ),
-          ),
-        );
+        await _openAndShareDownloadedFile(targetOpenPath, displaySavedName, targetOpenPath);
       }
     } catch (e) {
       AppLogger.e('Error downloading data URL file', e);
@@ -776,18 +811,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
           _downloadProgress = 0.0;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Downloaded: $displaySavedName'),
-            action: SnackBarAction(
-              label: 'Open',
-              textColor: Colors.orange,
-              onPressed: () async {
-                await OpenFilex.open(targetOpenPath);
-              },
-            ),
-          ),
-        );
+        await _openAndShareDownloadedFile(targetOpenPath, displaySavedName, targetOpenPath);
       }
     } catch (e) {
       if (partialFile != null && await partialFile.exists()) {
