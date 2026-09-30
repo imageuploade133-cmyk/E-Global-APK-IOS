@@ -113,6 +113,8 @@ void main() async {
       Permission.camera,
       Permission.microphone,
       Permission.locationWhenInUse,
+      Permission.storage,
+      Permission.photos,
     ]) {
       final status = await permission.status;
       if (!(status.isGranted || status.isLimited || status.isRestricted)) {

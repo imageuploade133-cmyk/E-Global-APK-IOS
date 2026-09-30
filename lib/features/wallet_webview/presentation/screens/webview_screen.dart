@@ -471,6 +471,144 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     return null;
   }
 
+  Future<void> _handleDataUrlDownload(String dataUrl, String? mimeTypeOverride) async {
+    try {
+      setState(() {
+        _isDownloading = true;
+        _downloadingFileName = 'receipt.pdf';
+        _downloadProgress = 0.3;
+      });
+
+      final uriData = Uri.parse(dataUrl).data;
+      final bytes = uriData?.contentAsBytes();
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Invalid or empty data URL');
+      }
+
+      final mimeType = uriData?.mimeType ?? mimeTypeOverride ?? 'application/pdf';
+      final ext = mimeType.contains('pdf')
+          ? 'pdf'
+          : (mimeType.contains('png')
+              ? 'png'
+              : (mimeType.contains('jpeg') || mimeType.contains('jpg') ? 'jpg' : 'file'));
+      final fileName = 'E-Global_Pay_Document_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsBytes(bytes);
+
+      String targetOpenPath = tempFile.path;
+      String displaySavedName = fileName;
+
+      if (Platform.isAndroid) {
+        const channel = MethodChannel('com.eglobal.wallet/mediastore');
+        final String? publicSavedPath = await channel.invokeMethod<String>(
+          'saveToDownloads',
+          {
+            'tempFilePath': tempFile.path,
+            'fileName': fileName,
+            'mimeType': mimeType,
+          },
+        );
+        if (publicSavedPath != null && publicSavedPath.isNotEmpty) {
+          targetOpenPath = publicSavedPath;
+          displaySavedName = fileName;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Downloaded: $displaySavedName'),
+            action: SnackBarAction(
+              label: 'Open',
+              textColor: Colors.orange,
+              onPressed: () async {
+                await OpenFilex.open(targetOpenPath);
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      AppLogger.e('Error downloading data URL file', e);
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to download file.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleBlobDownload(String blobUrl, String? mimeType) async {
+    if (_webViewController == null) return;
+    try {
+      setState(() {
+        _isDownloading = true;
+        _downloadingFileName = 'Fetching PDF...';
+        _downloadProgress = 0.2;
+      });
+
+      final result = await _webViewController!.evaluateJavascript(source: """
+        (async function() {
+          try {
+            const res = await fetch('$blobUrl');
+            const blob = await res.blob();
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve({
+                dataUrl: reader.result,
+                type: blob.type
+              });
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(blob);
+            });
+          } catch(e) {
+            return null;
+          }
+        })()
+      """);
+
+      if (result != null) {
+        String? dataUrl;
+        String? extractedType;
+        if (result is Map) {
+          dataUrl = result['dataUrl']?.toString();
+          extractedType = result['type']?.toString();
+        } else if (result is String) {
+          dataUrl = result;
+        }
+
+        if (dataUrl != null && dataUrl.startsWith('data:')) {
+          await _handleDataUrlDownload(dataUrl, extractedType ?? mimeType);
+          return;
+        }
+      }
+
+      throw Exception('Could not resolve blob URL via JavaScript');
+    } catch (e) {
+      AppLogger.e('Error handling blob download', e);
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to download file.')),
+        );
+      }
+    }
+  }
+
   Future<void> _handleDownload(
     String url,
     String? userAgent,
@@ -481,7 +619,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
     File? partialFile;
     try {
       final uri = Uri.parse(url);
-      if (uri.scheme.toLowerCase() != 'https') {
+      final scheme = uri.scheme.toLowerCase();
+
+      if (scheme == 'data') {
+        await _handleDataUrlDownload(url, mimeType);
+        return;
+      }
+
+      if (scheme == 'blob') {
+        await _handleBlobDownload(url, mimeType);
+        return;
+      }
+
+      final isLocalhost = uri.host == 'localhost' || uri.host == '127.0.0.1';
+      if (scheme != 'https' && !isLocalhost) {
         AppLogger.e('Rejected insecure download request (non-HTTPS)');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -494,7 +645,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
       final isOfficialHost = AppStrings.isTrustedWalletOrigin(uri);
       final isTrustedGateway = AppStrings.isTrustedGatewayOrigin(uri);
 
-      if (!isOfficialHost && !isTrustedGateway) {
+      if (!isOfficialHost && !isTrustedGateway && !isLocalhost) {
         AppLogger.e('Rejected download request from untrusted origin host');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1261,6 +1412,17 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
                     if (AppStrings.isTrustedWalletOrigin(uri)) {
                       return NavigationActionPolicy.ALLOW;
+                    }
+
+                    if (scheme == 'blob' || scheme == 'data') {
+                      await _handleDownload(
+                        urlString,
+                        null,
+                        null,
+                        null,
+                        0,
+                      );
+                      return NavigationActionPolicy.CANCEL;
                     }
 
                     if (scheme == 'tel' ||
