@@ -1344,6 +1344,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     useShouldOverrideUrlLoading: true,
                     mediaPlaybackRequiresUserGesture: false,
                     javaScriptEnabled: true,
+                    javaScriptCanOpenWindowsAutomatically: true,
+                    supportMultipleWindows: true,
                     domStorageEnabled: true,
                     databaseEnabled: true,
                     cacheEnabled: true,
@@ -1485,7 +1487,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     if (scheme == 'tel' ||
                         scheme == 'mailto' ||
                         scheme == 'sms' ||
-                        scheme == 'whatsapp') {
+                        scheme == 'whatsapp' ||
+                        scheme == 'intent' ||
+                        scheme == 'market') {
                       try {
                         await launchUrl(
                           uri,
@@ -2234,6 +2238,54 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                           ? JsPromptResponseAction.CONFIRM
                           : JsPromptResponseAction.CANCEL,
                     );
+                  },
+                  onCreateWindow: (controller, createWindowAction) async {
+                    final requestUrl = createWindowAction.request.url;
+                    if (requestUrl != null) {
+                      final urlString = requestUrl.toString();
+                      final scheme = requestUrl.scheme.toLowerCase();
+
+                      if (AppStrings.isTrustedWalletOrigin(requestUrl) ||
+                          AppStrings.isTrustedGatewayOrigin(requestUrl)) {
+                        _webViewController?.loadUrl(
+                          urlRequest: createWindowAction.request,
+                        );
+                        return true;
+                      }
+
+                      if (scheme == 'tel' ||
+                          scheme == 'mailto' ||
+                          scheme == 'sms' ||
+                          scheme == 'whatsapp' ||
+                          scheme == 'intent' ||
+                          scheme == 'market') {
+                        try {
+                          await launchUrl(
+                            requestUrl,
+                            mode: LaunchMode.externalApplication,
+                          );
+                        } catch (e) {
+                          AppLogger.e('Could not launch protocol: $scheme', e);
+                        }
+                        return true;
+                      }
+
+                      if (scheme == 'http' || scheme == 'https') {
+                        try {
+                          await launchUrl(
+                            requestUrl,
+                            mode: LaunchMode.externalApplication,
+                          );
+                        } catch (e) {
+                          AppLogger.e(
+                            'Could not launch external URL: $urlString',
+                            e,
+                          );
+                        }
+                        return true;
+                      }
+                    }
+                    return true;
                   },
                   onPermissionRequest: (controller, request) async {
                     return await _handlePermissionRequest(controller, request);
