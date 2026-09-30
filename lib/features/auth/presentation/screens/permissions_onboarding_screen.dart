@@ -29,6 +29,7 @@ class _PermissionsOnboardingScreenState
     Permission.notification,
     Permission.contacts,
     Permission.photos,
+    Permission.storage,
   ];
 
   @override
