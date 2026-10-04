@@ -1894,15 +1894,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       handlerName: 'triggerNativeBiometric',
                       callback: (args) async {
                         try {
-                          final LocalAuthentication auth = LocalAuthentication();
-                          final bool didAuthenticate = await auth.authenticate(
-                            localizedReason:
-                                'Hardware verification required. Only your enrolled device Fingerprint can unlock your account.',
-                            options: const AuthenticationOptions(
-                              biometricOnly: true,
-                              stickyAuth: true,
-                              useErrorDialogs: true,
-                            ),
+                          final biometrics = ref.read(biometricServiceProvider);
+                          final bool didAuthenticate = await biometrics.authenticate(
+                            title: 'Hardware verification required',
+                            subtitle: 'Only your enrolled device Fingerprint can unlock your account.',
                           );
                           return {'success': didAuthenticate, 'error': null};
                         } catch (e) {
