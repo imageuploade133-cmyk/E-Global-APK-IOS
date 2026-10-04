@@ -1889,6 +1889,20 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
 
                     controller.addJavaScriptHandler(
+                      handlerName: 'authenticateBiometric',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected authenticateBiometric from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final biometrics = ref.read(biometricServiceProvider);
+                        return await biometrics.authenticate();
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
                       handlerName: 'enableBiometricLogin',
                       callback: (args) async {
                         if (!await _isCurrentUrlTrusted(controller)) {
