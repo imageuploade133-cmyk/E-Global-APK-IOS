@@ -81,11 +81,8 @@ class BiometricsServiceImpl implements BiometricsService {
     try {
       return await _auth.authenticate(
         localizedReason: '$title: $subtitle',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
     } catch (_) {
       return false;
