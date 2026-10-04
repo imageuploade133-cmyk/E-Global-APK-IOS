@@ -6,11 +6,12 @@ import '../constants/app_strings.dart';
 abstract class BiometricsService {
   Future<bool> isBiometricsAvailable();
   Future<List<BiometricType>> getAvailableBiometrics();
-  Future<bool> authenticate();
+  Future<bool> authenticate({String title, String subtitle, bool createIfMissing});
   Future<bool> createBiometricCredential();
   Future<bool> enableBiometricLogin(SecureStorageService secureStorage);
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
   Future<void> invalidateBiometricState(SecureStorageService secureStorage);
+  Future<void> cancelBiometricPrompt();
 }
 
 class BiometricsServiceImpl implements BiometricsService {
@@ -49,15 +50,30 @@ class BiometricsServiceImpl implements BiometricsService {
   }
 
   @override
-  Future<bool> authenticate() async {
+  Future<bool> authenticate({
+    String title = 'Biometric Authentication',
+    String subtitle = 'Authenticate to access E-Global Pay',
+    bool createIfMissing = false,
+  }) async {
     try {
-      return await _auth.authenticate(
-        localizedReason: 'Authenticate to access E-Global Pay securely',
-        biometricOnly: true,
-        sensitiveTransaction: true,
-        persistAcrossBackgrounding: true,
+      final Map<dynamic, dynamic>? res =
+          await _biometricChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'authenticateWithCryptoObject',
+        <String, dynamic>{
+          'title': title,
+          'subtitle': subtitle,
+          'createIfMissing': createIfMissing,
+        },
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          cancelBiometricPrompt();
+          return <dynamic, dynamic>{'success': false, 'error': 'Timeout', 'code': 'TIMEOUT'};
+        },
       );
-    } on PlatformException {
+
+      return res?['success'] == true;
+    } catch (_) {
       return false;
     }
   }
@@ -82,14 +98,19 @@ class BiometricsServiceImpl implements BiometricsService {
       return false;
     }
 
-    final bool authenticated = await authenticate();
-    if (!authenticated) {
+    final bool credentialCreated = await createBiometricCredential();
+    if (!credentialCreated) {
       await invalidateBiometricState(secureStorage);
       return false;
     }
 
-    final bool credentialCreated = await createBiometricCredential();
-    if (!credentialCreated) {
+    final bool authenticated = await authenticate(
+      title: 'Enable Biometric Login',
+      subtitle: 'Scan your biometric credential to complete enrollment',
+      createIfMissing: false,
+    );
+
+    if (!authenticated) {
       await invalidateBiometricState(secureStorage);
       return false;
     }
@@ -139,6 +160,13 @@ class BiometricsServiceImpl implements BiometricsService {
     try {
       await secureStorage.delete(AppStrings.biometricKey);
       await _biometricChannel.invokeMethod<bool>('deleteBiometricKey');
+    } catch (_) {}
+  }
+
+  @override
+  Future<void> cancelBiometricPrompt() async {
+    try {
+      await _biometricChannel.invokeMethod<bool>('cancelBiometricPrompt');
     } catch (_) {}
   }
 }
