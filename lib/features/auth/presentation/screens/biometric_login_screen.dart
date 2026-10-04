@@ -16,13 +16,15 @@ class BiometricLoginScreen extends ConsumerStatefulWidget {
       _BiometricLoginScreenState();
 }
 
-class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
+class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
+    with WidgetsBindingObserver {
   BiometricAuthState _authState = BiometricAuthState.idle;
   String? _statusMessage;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,

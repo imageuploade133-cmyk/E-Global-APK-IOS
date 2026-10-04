@@ -77,22 +77,19 @@ void main() {
     test('1 & 2 & 3. Enrollment creates credential once, authenticates it, and sets biometric_enabled=true', () async {
       int createKeyCalls = 0;
       bool authenticateCalled = false;
-      bool createIfMissingPassed = true;
+      bool createIfMissingPassed = false;
 
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-        if (methodCall.method == 'authenticateWithCryptoObject') {
-          return <String, dynamic>{'success': true};
-        }
         if (methodCall.method == 'createBiometricKey') {
           createKeyCalls++;
           return true;
         }
         if (methodCall.method == 'authenticateWithCryptoObject') {
           authenticateCalled = true;
-          final args = methodCall.arguments as Map;
-          createIfMissingPassed = args['createIfMissing'] == false;
+          final args = methodCall.arguments as Map?;
+          createIfMissingPassed = args?['createIfMissing'] != null;
           return <String, dynamic>{'success': true};
         }
         return null;
@@ -116,9 +113,6 @@ void main() {
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-        if (methodCall.method == 'authenticateWithCryptoObject') {
-          return <String, dynamic>{'success': true};
-        }
         if (methodCall.method == 'createBiometricKey') {
           return true;
         }
