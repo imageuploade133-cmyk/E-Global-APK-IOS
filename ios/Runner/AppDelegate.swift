@@ -43,7 +43,8 @@ import Security
           result(self.createBiometricKey())
         case "authenticateWithCryptoObject":
           let title = (args?["title"] as? String) ?? "Biometric Authentication"
-          self.authenticateWithCryptoObject(title: title, result: result)
+          let createIfMissing = (args?["createIfMissing"] as? Bool) ?? false
+          self.authenticateWithCryptoObject(title: title, createIfMissing: createIfMissing, result: result)
         case "validateBiometricKey":
           result(self.validateBiometricKey())
         case "deleteBiometricKey":
@@ -83,7 +84,7 @@ import Security
     return status == errSecSuccess
   }
 
-  private func authenticateWithCryptoObject(title: String, result: @escaping FlutterResult) {
+  private func authenticateWithCryptoObject(title: String, createIfMissing: Bool, result: @escaping FlutterResult) {
     let context = LAContext()
     var authError: NSError?
 
@@ -92,6 +93,15 @@ import Security
         "success": false,
         "error": authError?.localizedDescription ?? "Biometrics unavailable",
         "code": "BIOMETRIC_UNAVAILABLE"
+      ])
+      return
+    }
+
+    if !createIfMissing && !validateBiometricKey() {
+      result([
+        "success": false,
+        "error": "Keychain biometric credential missing or invalidated",
+        "code": "KEY_MISSING"
       ])
       return
     }
@@ -115,16 +125,23 @@ import Security
           var item: CFTypeRef?
           let status = SecItemCopyMatching(query as CFDictionary, &item)
 
-          if status == errSecSuccess || status == errSecItemNotFound {
-            if status == errSecItemNotFound {
-              _ = self.createBiometricKey()
-            }
+          if status == errSecSuccess {
             result(["success": true])
+          } else if status == errSecItemNotFound && createIfMissing {
+            if self.createBiometricKey() {
+              result(["success": true])
+            } else {
+              result([
+                "success": false,
+                "error": "Failed to create Keychain credential",
+                "code": "KEY_CREATION_FAILED"
+              ])
+            }
           } else {
             _ = self.deleteBiometricKey()
             result([
               "success": false,
-              "error": "Keychain credential invalidated",
+              "error": "Keychain credential missing or invalidated",
               "code": "KEY_INVALIDATED"
             ])
           }

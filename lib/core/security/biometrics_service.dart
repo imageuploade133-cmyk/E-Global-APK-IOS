@@ -6,7 +6,7 @@ import '../constants/app_strings.dart';
 abstract class BiometricsService {
   Future<bool> isBiometricsAvailable();
   Future<List<BiometricType>> getAvailableBiometrics();
-  Future<bool> authenticate({String title, String subtitle});
+  Future<bool> authenticate({String title, String subtitle, bool createIfMissing});
   Future<bool> createBiometricCredential();
   Future<bool> enableBiometricLogin(SecureStorageService secureStorage);
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
@@ -53,12 +53,17 @@ class BiometricsServiceImpl implements BiometricsService {
   Future<bool> authenticate({
     String title = 'Biometric Authentication',
     String subtitle = 'Authenticate to access E-Global Pay',
+    bool createIfMissing = false,
   }) async {
     try {
       final Map<dynamic, dynamic>? res =
           await _biometricChannel.invokeMethod<Map<dynamic, dynamic>>(
         'authenticateWithCryptoObject',
-        <String, String>{'title': title, 'subtitle': subtitle},
+        <String, dynamic>{
+          'title': title,
+          'subtitle': subtitle,
+          'createIfMissing': createIfMissing,
+        },
       ).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
@@ -93,17 +98,19 @@ class BiometricsServiceImpl implements BiometricsService {
       return false;
     }
 
-    final bool authenticated = await authenticate(
-      title: 'Enable Biometric Login',
-      subtitle: 'Scan your biometric credential to complete enrollment',
-    );
-    if (!authenticated) {
+    final bool credentialCreated = await createBiometricCredential();
+    if (!credentialCreated) {
       await invalidateBiometricState(secureStorage);
       return false;
     }
 
-    final bool credentialCreated = await createBiometricCredential();
-    if (!credentialCreated) {
+    final bool authenticated = await authenticate(
+      title: 'Enable Biometric Login',
+      subtitle: 'Scan your biometric credential to complete enrollment',
+      createIfMissing: false,
+    );
+
+    if (!authenticated) {
       await invalidateBiometricState(secureStorage);
       return false;
     }

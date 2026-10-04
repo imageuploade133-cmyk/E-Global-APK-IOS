@@ -43,15 +43,13 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
-    override fun onStop() {
-        super.onStop()
-        cancelActiveBiometricPrompt()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         cancelActiveBiometricPrompt()
     }
+
+    // Note: Do NOT cancel activeBiometricPrompt on onStop/onPause because Android BiometricPrompt
+    // system UI overlay causes onPause/onStop on the host Activity!
 
     private fun cancelActiveBiometricPrompt() {
         try {
@@ -104,7 +102,8 @@ class MainActivity: FlutterFragmentActivity() {
                 "authenticateWithCryptoObject" -> {
                     val title = call.argument<String>("title") ?: "Biometric Authentication"
                     val subtitle = call.argument<String>("subtitle") ?: "Authenticate to access E-Global Pay"
-                    authenticateWithCryptoObject(title, subtitle, result)
+                    val createIfMissing = call.argument<Boolean>("createIfMissing") ?: false
+                    authenticateWithCryptoObject(title, subtitle, createIfMissing, result)
                 }
                 "validateBiometricKey" -> {
                     try {
@@ -233,7 +232,12 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
-    private fun authenticateWithCryptoObject(title: String, subtitle: String, methodResult: MethodChannel.Result) {
+    private fun authenticateWithCryptoObject(
+        title: String,
+        subtitle: String,
+        createIfMissing: Boolean,
+        methodResult: MethodChannel.Result
+    ) {
         cancelActiveBiometricPrompt()
 
         val biometricManager = BiometricManager.from(this)
@@ -246,9 +250,23 @@ class MainActivity: FlutterFragmentActivity() {
         val cipher: Cipher
         try {
             val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val key = (if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
-                keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
-            } else null) ?: createKeystoreKey()
+            val keyExists = keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)
+
+            if (!keyExists) {
+                if (!createIfMissing) {
+                    methodResult.success(mapOf("success" to false, "error" to "Biometric key missing", "code" to "KEY_MISSING"))
+                    return
+                } else {
+                    createKeystoreKey()
+                    keyStore.load(null)
+                }
+            }
+
+            val key = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
+            if (key == null) {
+                methodResult.success(mapOf("success" to false, "error" to "Biometric key missing", "code" to "KEY_MISSING"))
+                return
+            }
 
             cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
             cipher.init(Cipher.ENCRYPT_MODE, key)
@@ -273,24 +291,14 @@ class MainActivity: FlutterFragmentActivity() {
                 completed = true
                 activeBiometricPrompt = null
 
-                try {
-                    val authenticatedCipher = authResult.cryptoObject?.cipher
-                    if (authenticatedCipher != null) {
-                        // Execute cryptographic operation post-authentication to verify key participation
-                        authenticatedCipher.doFinal("eglobal_auth_payload".toByteArray(Charsets.UTF_8))
-                        methodResult.success(mapOf("success" to true))
-                    } else {
-                        methodResult.success(mapOf("success" to false, "error" to "CryptoObject missing", "code" to "CRYPTO_ERROR"))
-                    }
-                } catch (e: Exception) {
-                    methodResult.success(mapOf("success" to false, "error" to e.localizedMessage, "code" to "CRYPTO_EXECUTION_FAILED"))
-                }
+                activeBiometricPrompt = null
+                methodResult.success(mapOf("success" to true))
             }
 
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
                 // Fingerprint not recognized: System prompt displays retry message.
-                // Do NOT mark completed or return failure so user can retry immediately.
+                // Do NOT mark completed or return failure so user can retry on native prompt.
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
