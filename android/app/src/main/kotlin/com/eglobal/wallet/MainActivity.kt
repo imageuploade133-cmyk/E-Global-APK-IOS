@@ -258,6 +258,7 @@ class MainActivity: FlutterFragmentActivity() {
                     return
                 } else {
                     createKeystoreKey()
+                    keyStore.load(null)
                 }
             }
 
