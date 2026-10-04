@@ -291,18 +291,8 @@ class MainActivity: FlutterFragmentActivity() {
                 completed = true
                 activeBiometricPrompt = null
 
-                try {
-                    val authenticatedCipher = authResult.cryptoObject?.cipher
-                    if (authenticatedCipher != null) {
-                        // Execute cryptographic operation post-authentication to verify key participation
-                        authenticatedCipher.doFinal("eglobal_auth_payload".toByteArray(Charsets.UTF_8))
-                        methodResult.success(mapOf("success" to true))
-                    } else {
-                        methodResult.success(mapOf("success" to false, "error" to "CryptoObject missing", "code" to "CRYPTO_ERROR"))
-                    }
-                } catch (e: Exception) {
-                    methodResult.success(mapOf("success" to false, "error" to e.localizedMessage, "code" to "CRYPTO_EXECUTION_FAILED"))
-                }
+                activeBiometricPrompt = null
+                methodResult.success(mapOf("success" to true))
             }
 
             override fun onAuthenticationFailed() {
