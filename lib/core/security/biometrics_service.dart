@@ -14,6 +14,8 @@ abstract class BiometricsService {
 class BiometricsServiceImpl implements BiometricsService {
   final LocalAuthentication _auth;
 
+  static const String _biometricTokenKey = 'biometric_enrolled_token_v1';
+
   BiometricsServiceImpl({LocalAuthentication? auth})
       : _auth = auth ?? LocalAuthentication();
 
@@ -63,26 +65,44 @@ class BiometricsServiceImpl implements BiometricsService {
       return false;
     }
 
-    final List<BiometricType> currentTypes = await getAvailableBiometrics();
-    final String currentSig = currentTypes.map((t) => t.name).join(',');
+    final String? isEnabledStr = await secureStorage.read(AppStrings.biometricKey);
+    final bool isEnabled = isEnabledStr == 'true';
 
-    const sigKey = 'biometric_enrolled_signature_v1';
-    final String? savedSig = await secureStorage.read(sigKey);
-
-    if (savedSig == null) {
-      await secureStorage.write(sigKey, currentSig);
-      return true;
-    } else if (savedSig != currentSig) {
-      await invalidateBiometricState(secureStorage);
+    if (!isEnabled) {
       return false;
     }
 
-    return true;
+    try {
+      final List<BiometricType> currentTypes = await getAvailableBiometrics();
+      final String currentSig = currentTypes.map((t) => t.name).join(',');
+
+      final String? storedToken = await secureStorage.read(_biometricTokenKey);
+
+      if (storedToken == null) {
+        // Initial token generation when biometric login is active
+        await secureStorage.write(_biometricTokenKey, 'valid_$currentSig');
+        return true;
+      }
+
+      if (storedToken != 'valid_$currentSig') {
+        // Biometric types or platform key changed
+        await invalidateBiometricState(secureStorage);
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      // Platform security key invalidation (e.g. KeyPermanentlyInvalidatedException or Keychain invalidation)
+      await invalidateBiometricState(secureStorage);
+      return false;
+    }
   }
 
   @override
   Future<void> invalidateBiometricState(SecureStorageService secureStorage) async {
-    await secureStorage.delete(AppStrings.biometricKey);
-    await secureStorage.delete('biometric_enrolled_signature_v1');
+    try {
+      await secureStorage.delete(AppStrings.biometricKey);
+      await secureStorage.delete(_biometricTokenKey);
+    } catch (_) {}
   }
 }

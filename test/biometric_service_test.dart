@@ -43,6 +43,7 @@ class MockLocalAuthentication implements LocalAuthentication {
 
 class MockSecureStorageService implements SecureStorageService {
   final Map<String, String> storage = {};
+  bool throwOnRead = false;
 
   @override
   Future<void> write(String key, String value) async {
@@ -51,6 +52,9 @@ class MockSecureStorageService implements SecureStorageService {
 
   @override
   Future<String?> read(String key) async {
+    if (throwOnRead && key == 'biometric_enrolled_token_v1') {
+      throw Exception('KeyPermanentlyInvalidatedException: Biometrics changed');
+    }
     return storage[key];
   }
 
@@ -91,7 +95,20 @@ void main() {
       expect(available, isFalse);
     });
 
-    test('validateBiometricEnrollment saves initial signature and returns true', () async {
+    test('validateBiometricEnrollment saves initial token when biometric is enabled', () async {
+      final mockAuth = MockLocalAuthentication(
+        mockEnrolledBiometrics: [BiometricType.fingerprint],
+      );
+      final service = BiometricsServiceImpl(auth: mockAuth);
+      final mockStorage = MockSecureStorageService();
+      mockStorage.storage['biometric_enabled'] = 'true';
+
+      final isValid = await service.validateBiometricEnrollment(mockStorage);
+      expect(isValid, isTrue);
+      expect(mockStorage.storage['biometric_enrolled_token_v1'], 'valid_fingerprint');
+    });
+
+    test('validateBiometricEnrollment returns false when biometric_enabled is not true', () async {
       final mockAuth = MockLocalAuthentication(
         mockEnrolledBiometrics: [BiometricType.fingerprint],
       );
@@ -99,14 +116,13 @@ void main() {
       final mockStorage = MockSecureStorageService();
 
       final isValid = await service.validateBiometricEnrollment(mockStorage);
-      expect(isValid, isTrue);
-      expect(mockStorage.storage['biometric_enrolled_signature_v1'], 'fingerprint');
+      expect(isValid, isFalse);
     });
 
-    test('validateBiometricEnrollment invalidates state if enrolled biometrics change', () async {
+    test('validateBiometricEnrollment invalidates state if enrolled biometrics change type', () async {
       final mockStorage = MockSecureStorageService();
       mockStorage.storage['biometric_enabled'] = 'true';
-      mockStorage.storage['biometric_enrolled_signature_v1'] = 'fingerprint';
+      mockStorage.storage['biometric_enrolled_token_v1'] = 'valid_fingerprint';
 
       final mockAuthChanged = MockLocalAuthentication(
         mockEnrolledBiometrics: [BiometricType.face],
@@ -116,7 +132,24 @@ void main() {
       final isValid = await service.validateBiometricEnrollment(mockStorage);
       expect(isValid, isFalse);
       expect(mockStorage.storage['biometric_enabled'], isNull);
-      expect(mockStorage.storage['biometric_enrolled_signature_v1'], isNull);
+      expect(mockStorage.storage['biometric_enrolled_token_v1'], isNull);
+    });
+
+    test('validateBiometricEnrollment invalidates state if platform secure key is invalidated', () async {
+      final mockStorage = MockSecureStorageService();
+      mockStorage.storage['biometric_enabled'] = 'true';
+      mockStorage.storage['biometric_enrolled_token_v1'] = 'valid_fingerprint';
+      mockStorage.throwOnRead = true;
+
+      final mockAuth = MockLocalAuthentication(
+        mockEnrolledBiometrics: [BiometricType.fingerprint],
+      );
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final isValid = await service.validateBiometricEnrollment(mockStorage);
+      expect(isValid, isFalse);
+      expect(mockStorage.storage['biometric_enabled'], isNull);
+      expect(mockStorage.storage['biometric_enrolled_token_v1'], isNull);
     });
   });
 }
