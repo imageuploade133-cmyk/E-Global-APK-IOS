@@ -1,21 +1,16 @@
 package com.eglobal.wallet
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.ContentValues
-import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import android.security.keystore.UserNotAuthenticatedException
+import androidx.annotation.NonNull
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -27,66 +22,15 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
-class MainActivity: FlutterFragmentActivity() {
-    private val BIOMETRIC_KEY_ALIAS = "eglobal_biometric_auth_key"
+class MainActivity : FlutterFragmentActivity() {
     private val BIOMETRIC_CHANNEL = "com.eglobal.wallet/biometric_key"
+    private val HAPTIC_CHANNEL = "com.eglobal.wallet/haptics"
+    private val CHANNEL = "com.eglobal.wallet/native"
+    private val BIOMETRIC_KEY_ALIAS = "eglobal_biometric_auth_key"
+
     private var activeBiometricPrompt: BiometricPrompt? = null
 
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Disable Android Autofill for the entire app view hierarchy.
-            window.decorView.importantForAutofill =
-                android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
-
-            createHighImportanceNotificationChannel()
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        cancelActiveBiometricPrompt()
-    }
-
-    // Note: Do NOT cancel activeBiometricPrompt on onStop/onPause because Android BiometricPrompt
-    // system UI overlay causes onPause/onStop on the host Activity!
-
-    private fun cancelActiveBiometricPrompt() {
-        try {
-            activeBiometricPrompt?.cancelAuthentication()
-            activeBiometricPrompt = null
-        } catch (_: Exception) {}
-    }
-
-    private fun createHighImportanceNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channelId = "eglobal_wallet_high_channel"
-            val channelName = "E-Global Wallet Notifications"
-            val channelDescription = "This channel is used for important wallet updates."
-            val importance = NotificationManager.IMPORTANCE_HIGH
-
-            val channel = NotificationChannel(channelId, channelName, importance).apply {
-                description = channelDescription
-                enableVibration(true)
-                enableLights(true)
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
-                val audioAttributes = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                    .build()
-                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, audioAttributes)
-            }
-
-            val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager?.createNotificationChannel(channel)
-        }
-    }
-
-    private val CHANNEL = "com.eglobal.wallet/mediastore"
-    private val HAPTICS_CHANNEL = "com.eglobal.wallet/haptics"
-    private val SECURITY_CHANNEL = "com.eglobal.wallet/security"
-
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+    override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BIOMETRIC_CHANNEL).setMethodCallHandler { call, result ->
@@ -99,12 +43,6 @@ class MainActivity: FlutterFragmentActivity() {
                         result.error("KEY_CREATION_FAILED", e.localizedMessage, null)
                     }
                 }
-                "authenticateWithCryptoObject" -> {
-                    val title = call.argument<String>("title") ?: "Biometric Authentication"
-                    val subtitle = call.argument<String>("subtitle") ?: "Authenticate to access E-Global Pay"
-                    val createIfMissing = call.argument<Boolean>("createIfMissing") ?: false
-                    authenticateWithCryptoObject(title, subtitle, createIfMissing, result)
-                }
                 "validateBiometricKey" -> {
                     try {
                         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -112,23 +50,17 @@ class MainActivity: FlutterFragmentActivity() {
                             result.success(false)
                             return@setMethodCallHandler
                         }
-
                         val key = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
                         if (key == null) {
                             result.success(false)
                             return@setMethodCallHandler
                         }
-
                         val cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
                         cipher.init(Cipher.ENCRYPT_MODE, key)
                         result.success(true)
                     } catch (e: KeyPermanentlyInvalidatedException) {
-                        // Biometric enrollment changed! KeyStore automatically invalidated key.
                         deleteKeystoreKey()
                         result.success(false)
-                    } catch (e: UserNotAuthenticatedException) {
-                        // Key exists and is valid, but requires biometric auth
-                        result.success(true)
                     } catch (e: Exception) {
                         result.success(false)
                     }
@@ -136,6 +68,12 @@ class MainActivity: FlutterFragmentActivity() {
                 "deleteBiometricKey" -> {
                     deleteKeystoreKey()
                     result.success(true)
+                }
+                "authenticateWithCryptoObject" -> {
+                    val title = call.argument<String>("title") ?: "Biometric Authentication"
+                    val subtitle = call.argument<String>("subtitle") ?: "Authenticate to access E-Global Pay"
+                    val createIfMissing = call.argument<Boolean>("createIfMissing") ?: true
+                    authenticateWithCryptoObject(title, subtitle, createIfMissing, result)
                 }
                 "cancelBiometricPrompt" -> {
                     cancelActiveBiometricPrompt()
@@ -145,46 +83,21 @@ class MainActivity: FlutterFragmentActivity() {
             }
         }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURITY_CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "isDeveloperModeEnabled") {
-                try {
-                    val devMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-                        Settings.Global.getInt(contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
-                    } else {
-                        @Suppress("DEPRECATION")
-                        Settings.Secure.getInt(contentResolver, Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
-                    }
-                    result.success(devMode)
-                } catch (e: Exception) {
-                    result.success(false)
-                }
-            } else {
-                result.notImplemented()
-            }
-        }
-
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HAPTICS_CHANNEL).setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, HAPTIC_CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "vibrate") {
+                val type = call.argument<String>("type") ?: "medium"
                 try {
-                    val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
-                    val type = call.argument<String>("type") ?: "default"
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    val vibrator = getSystemService(VIBRATOR_SERVICE) as? android.os.Vibrator
+                    if (vibrator == null || !vibrator.hasVibrator()) {
+                        result.success(null)
+                        return@setMethodCallHandler
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val effect = when (type) {
-                            "keypress", "pin" -> {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                                    android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK)
-                                } else {
-                                    android.os.VibrationEffect.createOneShot(40L, 180)
-                                }
-                            }
-                            "heavy", "impact" -> {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                                    android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_HEAVY_CLICK)
-                                } else {
-                                    android.os.VibrationEffect.createOneShot(70L, 255)
-                                }
-                            }
-                            else -> android.os.VibrationEffect.createOneShot(60L, android.os.VibrationEffect.DEFAULT_AMPLITUDE)
+                            "keypress", "pin" -> android.os.VibrationEffect.createOneShot(35, android.os.VibrationEffect.DEFAULT_AMPLITUDE)
+                            "heavy", "impact" -> android.os.VibrationEffect.createOneShot(70, android.os.VibrationEffect.DEFAULT_AMPLITUDE)
+                            else -> android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE)
                         }
                         vibrator.vibrate(effect)
                     } else {
@@ -232,6 +145,13 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
+    private fun cancelActiveBiometricPrompt() {
+        try {
+            activeBiometricPrompt?.cancelAuthentication()
+            activeBiometricPrompt = null
+        } catch (_: Exception) {}
+    }
+
     private fun authenticateWithCryptoObject(
         title: String,
         subtitle: String,
@@ -241,47 +161,36 @@ class MainActivity: FlutterFragmentActivity() {
         cancelActiveBiometricPrompt()
 
         val biometricManager = BiometricManager.from(this)
-        val canAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
+        val canAuth = biometricManager.canAuthenticate(authenticators)
         if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
-            methodResult.success(mapOf("success" to false, "error" to "Biometrics not available or strong biometrics missing", "code" to "BIOMETRIC_UNAVAILABLE"))
+            methodResult.success(mapOf("success" to false, "error" to "Biometrics not available on device", "code" to "BIOMETRIC_UNAVAILABLE"))
             return
         }
 
-        val cipher: Cipher
+        var cipher: Cipher? = null
         try {
             val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val keyExists = keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)
+            var keyExists = keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)
 
-            if (!keyExists) {
-                if (!createIfMissing) {
-                    methodResult.success(mapOf("success" to false, "error" to "Biometric key missing", "code" to "KEY_MISSING"))
-                    return
-                } else {
-                    createKeystoreKey()
-                    keyStore.load(null)
+            if (!keyExists && createIfMissing) {
+                createKeystoreKey()
+                keyStore.load(null)
+                keyExists = keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)
+            }
+
+            if (keyExists) {
+                val key = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
+                if (key != null) {
+                    cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+                    cipher.init(Cipher.ENCRYPT_MODE, key)
                 }
             }
-
-            val key = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
-            if (key == null) {
-                methodResult.success(mapOf("success" to false, "error" to "Biometric key missing", "code" to "KEY_MISSING"))
-                return
-            }
-
-            cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
-            cipher.init(Cipher.ENCRYPT_MODE, key)
         } catch (e: KeyPermanentlyInvalidatedException) {
             deleteKeystoreKey()
-            methodResult.success(mapOf("success" to false, "error" to "Biometric enrollment changed", "code" to "KEY_INVALIDATED"))
-            return
-        } catch (e: Exception) {
-            methodResult.success(mapOf("success" to false, "error" to e.localizedMessage, "code" to "KEY_INIT_FAILED"))
-            return
-        }
+        } catch (_: Exception) {}
 
-        val cryptoObject = BiometricPrompt.CryptoObject(cipher)
         val executor = ContextCompat.getMainExecutor(this)
-
         var completed = false
 
         val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -290,15 +199,11 @@ class MainActivity: FlutterFragmentActivity() {
                 if (completed) return
                 completed = true
                 activeBiometricPrompt = null
-
-                activeBiometricPrompt = null
                 methodResult.success(mapOf("success" to true))
             }
 
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
-                // Fingerprint not recognized: System prompt displays retry message.
-                // Do NOT mark completed or return failure so user can retry on native prompt.
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -319,14 +224,19 @@ class MainActivity: FlutterFragmentActivity() {
 
         activeBiometricPrompt = prompt
 
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+        val promptInfoBuilder = BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
-            .setNegativeButtonText("Cancel")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-            .build()
 
-        prompt.authenticate(promptInfo, cryptoObject)
+        if (cipher != null) {
+            promptInfoBuilder.setNegativeButtonText("Cancel")
+            promptInfoBuilder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            prompt.authenticate(promptInfoBuilder.build(), BiometricPrompt.CryptoObject(cipher))
+        } else {
+            promptInfoBuilder.setNegativeButtonText("Cancel")
+            promptInfoBuilder.setAllowedAuthenticators(authenticators)
+            prompt.authenticate(promptInfoBuilder.build())
+        }
     }
 
     private fun createKeystoreKey(): SecretKey {

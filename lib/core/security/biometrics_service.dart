@@ -30,11 +30,11 @@ class BiometricsServiceImpl implements BiometricsService {
     try {
       final bool canCheck = await _auth.canCheckBiometrics;
       final bool isDeviceSupported = await _auth.isDeviceSupported();
-      if (!canCheck || !isDeviceSupported) {
+      if (!canCheck && !isDeviceSupported) {
         return false;
       }
       final List<BiometricType> available = await getAvailableBiometrics();
-      return available.isNotEmpty;
+      return available.isNotEmpty || isDeviceSupported;
     } on PlatformException {
       return false;
     }
@@ -53,7 +53,7 @@ class BiometricsServiceImpl implements BiometricsService {
   Future<bool> authenticate({
     String title = 'Biometric Authentication',
     String subtitle = 'Authenticate to access E-Global Pay',
-    bool createIfMissing = false,
+    bool createIfMissing = true,
   }) async {
     try {
       final Map<dynamic, dynamic>? res =
@@ -72,7 +72,21 @@ class BiometricsServiceImpl implements BiometricsService {
         },
       );
 
-      return res?['success'] == true;
+      if (res?['success'] == true) {
+        return true;
+      }
+    } catch (_) {}
+
+    // Fallback directly to local_auth package which triggers the native OS BiometricPrompt dialog
+    try {
+      return await _auth.authenticate(
+        localizedReason: '$title: $subtitle',
+        options: const AuthenticationOptions(
+          biometricOnly: true,
+          stickyAuth: true,
+          useErrorDialogs: true,
+        ),
+      );
     } catch (_) {
       return false;
     }
@@ -107,7 +121,7 @@ class BiometricsServiceImpl implements BiometricsService {
     final bool authenticated = await authenticate(
       title: 'Enable Biometric Login',
       subtitle: 'Scan your biometric credential to complete enrollment',
-      createIfMissing: false,
+      createIfMissing: true,
     );
 
     if (!authenticated) {
@@ -142,7 +156,6 @@ class BiometricsServiceImpl implements BiometricsService {
           false;
 
       if (!isValidNativeKey) {
-        // Platform KeyStore / Keychain invalidated key because biometric enrollment changed
         await invalidateBiometricState(secureStorage);
         return false;
       }
