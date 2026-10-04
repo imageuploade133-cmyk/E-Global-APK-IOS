@@ -69,42 +69,65 @@ class MockSecureStorageService implements SecureStorageService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('BiometricsServiceImpl Tests', () {
+  group('BiometricsServiceImpl Enrollment Flow Tests', () {
     late MockSecureStorageService mockStorage;
 
     setUp(() {
       mockStorage = MockSecureStorageService();
     });
 
-    test('1. Biometric credential creation setup', () async {
-      bool nativeKeyCreated = false;
+    test('1. Successful biometric authentication + native credential creation sets biometric_enabled=true', () async {
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
-
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
         if (methodCall.method == 'createBiometricKey') {
-          nativeKeyCreated = true;
           return true;
         }
         return null;
       });
 
-      final service = BiometricsServiceImpl();
-      final created = await service.createBiometricCredential();
-
-      expect(created, isTrue);
-      expect(nativeKeyCreated, isTrue);
-    });
-
-    test('2. Successful biometric credential authentication', () async {
-      final mockAuth = MockLocalAuthentication(mockAuthenticateResult: true);
+      final mockAuth = MockLocalAuthentication(
+        mockCanCheckBiometrics: true,
+        mockIsDeviceSupported: true,
+        mockEnrolledBiometrics: [BiometricType.fingerprint],
+        mockAuthenticateResult: true,
+      );
       final service = BiometricsServiceImpl(auth: mockAuth);
 
-      final result = await service.authenticate();
-      expect(result, isTrue);
+      final enabled = await service.enableBiometricLogin(mockStorage);
+
+      expect(enabled, isTrue);
+      expect(mockStorage.storage['biometric_enabled'], 'true');
     });
 
-    test('3 & 4 & 5. Invalid credential clears biometric_enabled state and invalidates', () async {
+    test('2. Native credential creation failure keeps biometric_enabled unset', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'createBiometricKey') {
+          return false; // Native OS KeyStore/Keychain failed to generate key
+        }
+        if (methodCall.method == 'deleteBiometricKey') {
+          return true;
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication(
+        mockCanCheckBiometrics: true,
+        mockIsDeviceSupported: true,
+        mockEnrolledBiometrics: [BiometricType.fingerprint],
+        mockAuthenticateResult: true,
+      );
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final enabled = await service.enableBiometricLogin(mockStorage);
+
+      expect(enabled, isFalse);
+      expect(mockStorage.storage['biometric_enabled'], isNull);
+    });
+
+    test('3. Invalidated native credential deletes biometric state', () async {
       mockStorage.storage['biometric_enabled'] = 'true';
       bool deleteNativeKeyCalled = false;
 
@@ -112,7 +135,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
         if (methodCall.method == 'validateBiometricKey') {
-          return false; // Native OS KeyStore/Keychain reported key invalidated due to biometric re-enrollment
+          return false; // Key invalidated because biometrics re-enrolled
         }
         if (methodCall.method == 'deleteBiometricKey') {
           deleteNativeKeyCalled = true;
@@ -135,7 +158,7 @@ void main() {
       expect(deleteNativeKeyCalled, isTrue);
     });
 
-    test('6. Fallback to normal authentication when biometric_enabled is false', () async {
+    test('4. Normal fallback returns false when biometric_enabled is false/unset', () async {
       final mockAuth = MockLocalAuthentication(
         mockCanCheckBiometrics: true,
         mockIsDeviceSupported: true,

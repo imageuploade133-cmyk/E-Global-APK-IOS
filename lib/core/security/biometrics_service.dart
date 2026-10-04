@@ -8,6 +8,7 @@ abstract class BiometricsService {
   Future<List<BiometricType>> getAvailableBiometrics();
   Future<bool> authenticate();
   Future<bool> createBiometricCredential();
+  Future<bool> enableBiometricLogin(SecureStorageService secureStorage);
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
   Future<void> invalidateBiometricState(SecureStorageService secureStorage);
 }
@@ -71,6 +72,30 @@ class BiometricsServiceImpl implements BiometricsService {
     } catch (_) {
       return false;
     }
+  }
+
+  @override
+  Future<bool> enableBiometricLogin(SecureStorageService secureStorage) async {
+    final bool available = await isBiometricsAvailable();
+    if (!available) {
+      await invalidateBiometricState(secureStorage);
+      return false;
+    }
+
+    final bool authenticated = await authenticate();
+    if (!authenticated) {
+      await invalidateBiometricState(secureStorage);
+      return false;
+    }
+
+    final bool credentialCreated = await createBiometricCredential();
+    if (!credentialCreated) {
+      await invalidateBiometricState(secureStorage);
+      return false;
+    }
+
+    await secureStorage.write(AppStrings.biometricKey, 'true');
+    return true;
   }
 
   @override
