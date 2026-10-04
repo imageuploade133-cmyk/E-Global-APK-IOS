@@ -37,13 +37,19 @@ import Security
           result(false)
           return
         }
+        let args = call.arguments as? [String: Any]
         switch call.method {
         case "createBiometricKey":
           result(self.createBiometricKey())
+        case "authenticateWithCryptoObject":
+          let title = (args?["title"] as? String) ?? "Biometric Authentication"
+          self.authenticateWithCryptoObject(title: title, result: result)
         case "validateBiometricKey":
           result(self.validateBiometricKey())
         case "deleteBiometricKey":
           result(self.deleteBiometricKey())
+        case "cancelBiometricPrompt":
+          result(true)
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -75,6 +81,67 @@ import Security
 
     let status = SecItemAdd(query as CFDictionary, nil)
     return status == errSecSuccess
+  }
+
+  private func authenticateWithCryptoObject(title: String, result: @escaping FlutterResult) {
+    let context = LAContext()
+    var authError: NSError?
+
+    guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &authError) else {
+      result([
+        "success": false,
+        "error": authError?.localizedDescription ?? "Biometrics unavailable",
+        "code": "BIOMETRIC_UNAVAILABLE"
+      ])
+      return
+    }
+
+    context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: title) { [weak self] success, evaluateError in
+      DispatchQueue.main.async {
+        guard let self = self else {
+          result(["success": false, "error": "Self reference lost", "code": "SYSTEM_ERROR"])
+          return
+        }
+
+        if success {
+          // Perform cryptographic Keychain access bound to .biometryCurrentSet
+          let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: self.biometricKeyAlias,
+            kSecReturnData as String: true,
+            kSecUseAuthenticationContext as String: context
+          ]
+
+          var item: CFTypeRef?
+          let status = SecItemCopyMatching(query as CFDictionary, &item)
+
+          if status == errSecSuccess || status == errSecItemNotFound {
+            if status == errSecItemNotFound {
+              _ = self.createBiometricKey()
+            }
+            result(["success": true])
+          } else {
+            _ = self.deleteBiometricKey()
+            result([
+              "success": false,
+              "error": "Keychain credential invalidated",
+              "code": "KEY_INVALIDATED"
+            ])
+          }
+        } else {
+          let errCode = (evaluateError as NSError?)?.code
+          let codeStr = (errCode == LAError.userCancel.rawValue || errCode == LAError.systemCancel.rawValue)
+            ? "USER_CANCELED"
+            : (errCode == LAError.biometryLockout.rawValue ? "LOCKOUT" : "AUTHENTICATION_FAILED")
+
+          result([
+            "success": false,
+            "error": evaluateError?.localizedDescription ?? "Biometric authentication failed",
+            "code": codeStr
+          ])
+        }
+      }
+    }
   }
 
   private func validateBiometricKey() -> Bool {

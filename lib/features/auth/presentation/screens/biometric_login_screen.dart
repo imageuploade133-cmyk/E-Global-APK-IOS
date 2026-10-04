@@ -14,13 +14,15 @@ class BiometricLoginScreen extends ConsumerStatefulWidget {
       _BiometricLoginScreenState();
 }
 
-class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
+class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
+    with WidgetsBindingObserver {
   bool _isAuthenticating = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Dismiss splash screen and restore normal system UI
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
@@ -30,6 +32,24 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndAuthenticate();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    try {
+      ref.read(biometricServiceProvider).cancelBiometricPrompt();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      try {
+        ref.read(biometricServiceProvider).cancelBiometricPrompt();
+      } catch (_) {}
+    }
   }
 
   Future<void> _checkAndAuthenticate() async {
@@ -65,18 +85,7 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
 
     final biometricService = ref.read(biometricServiceProvider);
 
-    final authenticated = await biometricService.authenticate().timeout(
-      const Duration(seconds: 30),
-      onTimeout: () {
-        if (mounted) {
-          setState(() {
-            _isAuthenticating = false;
-            _errorMessage = 'Biometric authentication timed out. Please tap below to retry.';
-          });
-        }
-        return false;
-      },
-    );
+    final authenticated = await biometricService.authenticate();
 
     if (!mounted) return;
 

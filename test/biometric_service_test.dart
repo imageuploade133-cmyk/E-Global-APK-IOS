@@ -8,13 +8,11 @@ class MockLocalAuthentication implements LocalAuthentication {
   final bool mockCanCheckBiometrics;
   final bool mockIsDeviceSupported;
   final List<BiometricType> mockEnrolledBiometrics;
-  final bool mockAuthenticateResult;
 
   MockLocalAuthentication({
     this.mockCanCheckBiometrics = true,
     this.mockIsDeviceSupported = true,
     this.mockEnrolledBiometrics = const [BiometricType.fingerprint],
-    this.mockAuthenticateResult = true,
   });
 
   @override
@@ -35,7 +33,7 @@ class MockLocalAuthentication implements LocalAuthentication {
     bool sensitiveTransaction = true,
     bool persistAcrossBackgrounding = false,
   }) async {
-    return mockAuthenticateResult;
+    return true;
   }
 
   @override
@@ -69,29 +67,27 @@ class MockSecureStorageService implements SecureStorageService {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('BiometricsServiceImpl Enrollment Flow Tests', () {
+  group('BiometricsServiceImpl Comprehensive Unit Tests', () {
     late MockSecureStorageService mockStorage;
 
     setUp(() {
       mockStorage = MockSecureStorageService();
     });
 
-    test('1. Successful biometric authentication + native credential creation sets biometric_enabled=true', () async {
+    test('1. Enrollment success: native crypto auth + native key creation sets biometric_enabled=true', () async {
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': true};
+        }
         if (methodCall.method == 'createBiometricKey') {
           return true;
         }
         return null;
       });
 
-      final mockAuth = MockLocalAuthentication(
-        mockCanCheckBiometrics: true,
-        mockIsDeviceSupported: true,
-        mockEnrolledBiometrics: [BiometricType.fingerprint],
-        mockAuthenticateResult: true,
-      );
+      final mockAuth = MockLocalAuthentication();
       final service = BiometricsServiceImpl(auth: mockAuth);
 
       final enabled = await service.enableBiometricLogin(mockStorage);
@@ -100,12 +96,12 @@ void main() {
       expect(mockStorage.storage['biometric_enabled'], 'true');
     });
 
-    test('2. Native credential creation failure keeps biometric_enabled unset', () async {
+    test('2. Enrollment authentication failure keeps biometric_enabled unset', () async {
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-        if (methodCall.method == 'createBiometricKey') {
-          return false; // Native OS KeyStore/Keychain failed to generate key
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': false, 'error': 'Failed', 'code': 'AUTHENTICATION_FAILED'};
         }
         if (methodCall.method == 'deleteBiometricKey') {
           return true;
@@ -113,12 +109,7 @@ void main() {
         return null;
       });
 
-      final mockAuth = MockLocalAuthentication(
-        mockCanCheckBiometrics: true,
-        mockIsDeviceSupported: true,
-        mockEnrolledBiometrics: [BiometricType.fingerprint],
-        mockAuthenticateResult: true,
-      );
+      final mockAuth = MockLocalAuthentication();
       final service = BiometricsServiceImpl(auth: mockAuth);
 
       final enabled = await service.enableBiometricLogin(mockStorage);
@@ -127,7 +118,66 @@ void main() {
       expect(mockStorage.storage['biometric_enabled'], isNull);
     });
 
-    test('3. Invalidated native credential deletes biometric state', () async {
+    test('3. Credential creation failure keeps biometric_enabled unset', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': true};
+        }
+        if (methodCall.method == 'createBiometricKey') {
+          return false; // Native OS KeyStore / Keychain failed
+        }
+        if (methodCall.method == 'deleteBiometricKey') {
+          return true;
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final enabled = await service.enableBiometricLogin(mockStorage);
+
+      expect(enabled, isFalse);
+      expect(mockStorage.storage['biometric_enabled'], isNull);
+    });
+
+    test('4. Native biometric cancellation returns false without throwing', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': false, 'error': 'User canceled', 'code': 'USER_CANCELED'};
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final result = await service.authenticate();
+      expect(result, isFalse);
+    });
+
+    test('5. Native authentication lockout error returns false', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': false, 'error': 'Too many attempts', 'code': 'LOCKOUT'};
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final result = await service.authenticate();
+      expect(result, isFalse);
+    });
+
+    test('6 & 7. Invalidated / missing native credential deletes biometric state', () async {
       mockStorage.storage['biometric_enabled'] = 'true';
       bool deleteNativeKeyCalled = false;
 
@@ -135,7 +185,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
         if (methodCall.method == 'validateBiometricKey') {
-          return false; // Key invalidated because biometrics re-enrolled
+          return false; // Key invalidated by OS
         }
         if (methodCall.method == 'deleteBiometricKey') {
           deleteNativeKeyCalled = true;
@@ -144,11 +194,7 @@ void main() {
         return null;
       });
 
-      final mockAuth = MockLocalAuthentication(
-        mockCanCheckBiometrics: true,
-        mockIsDeviceSupported: true,
-        mockEnrolledBiometrics: [BiometricType.fingerprint],
-      );
+      final mockAuth = MockLocalAuthentication();
       final service = BiometricsServiceImpl(auth: mockAuth);
 
       final isValid = await service.validateBiometricEnrollment(mockStorage);
@@ -158,16 +204,46 @@ void main() {
       expect(deleteNativeKeyCalled, isTrue);
     });
 
-    test('4. Normal fallback returns false when biometric_enabled is false/unset', () async {
-      final mockAuth = MockLocalAuthentication(
-        mockCanCheckBiometrics: true,
-        mockIsDeviceSupported: true,
-        mockEnrolledBiometrics: [BiometricType.fingerprint],
-      );
+    test('8. Biometric disabled state returns false when biometric_enabled is false/unset', () async {
+      final mockAuth = MockLocalAuthentication();
       final service = BiometricsServiceImpl(auth: mockAuth);
 
       final isValid = await service.validateBiometricEnrollment(mockStorage);
       expect(isValid, isFalse);
+    });
+
+    test('9. Successful biometric login returns true', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': true};
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final result = await service.authenticate();
+      expect(result, isTrue);
+    });
+
+    test('10. Failed biometric login returns false', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': false, 'error': 'Failed', 'code': 'AUTHENTICATION_FAILED'};
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final result = await service.authenticate();
+      expect(result, isFalse);
     });
   });
 }
