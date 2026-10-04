@@ -8,7 +8,7 @@ abstract class BiometricsService {
   Future<List<BiometricType>> getAvailableBiometrics();
   Future<bool> authenticate({String title, String subtitle, bool createIfMissing});
   Future<bool> createBiometricCredential();
-  Future<bool> enableBiometricLogin(SecureStorageService secureStorage);
+  Future<dynamic> enableBiometricLogin(SecureStorageService secureStorage);
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
   Future<void> invalidateBiometricState(SecureStorageService secureStorage);
   Future<void> cancelBiometricPrompt();
@@ -52,7 +52,7 @@ class BiometricsServiceImpl implements BiometricsService {
   @override
   Future<bool> authenticate({
     String title = 'Biometric Authentication',
-    String subtitle = 'Authenticate to access E-Global Pay',
+    String subtitle = 'Touch sensor to verify fingerprint',
     bool createIfMissing = false,
   }) async {
     try {
@@ -91,32 +91,44 @@ class BiometricsServiceImpl implements BiometricsService {
   }
 
   @override
-  Future<bool> enableBiometricLogin(SecureStorageService secureStorage) async {
+  Future<dynamic> enableBiometricLogin(SecureStorageService secureStorage) async {
     final bool available = await isBiometricsAvailable();
     if (!available) {
       await invalidateBiometricState(secureStorage);
-      return false;
+      return {
+        'success': false,
+        'message': 'No enrolled biometrics found. Please set up a fingerprint or Face ID in device settings.'
+      };
     }
 
     final bool credentialCreated = await createBiometricCredential();
     if (!credentialCreated) {
       await invalidateBiometricState(secureStorage);
-      return false;
+      return {
+        'success': false,
+        'message': 'Unable to initialize secure biometric key on device.'
+      };
     }
 
     final bool authenticated = await authenticate(
       title: 'Enable Biometric Login',
-      subtitle: 'Scan your biometric credential to complete enrollment',
+      subtitle: 'Touch sensor to verify fingerprint',
       createIfMissing: false,
     );
 
     if (!authenticated) {
       await invalidateBiometricState(secureStorage);
-      return false;
+      return {
+        'success': false,
+        'message': 'Biometric verification was cancelled or failed.'
+      };
     }
 
     await secureStorage.write(AppStrings.biometricKey, 'true');
-    return true;
+    return {
+      'success': true,
+      'message': 'Biometric login enabled successfully.'
+    };
   }
 
   @override

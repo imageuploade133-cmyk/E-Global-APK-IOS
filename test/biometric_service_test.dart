@@ -98,9 +98,9 @@ void main() {
       final mockAuth = MockLocalAuthentication();
       final service = BiometricsServiceImpl(auth: mockAuth);
 
-      final enabled = await service.enableBiometricLogin(mockStorage);
+      final dynamic enabled = await service.enableBiometricLogin(mockStorage);
 
-      expect(enabled, isTrue);
+      expect(enabled is Map ? enabled['success'] : enabled, isTrue);
       expect(createKeyCalls, equals(1));
       expect(authenticateCalled, isTrue);
       expect(createIfMissingPassed, isTrue);
@@ -129,9 +129,9 @@ void main() {
       final mockAuth = MockLocalAuthentication();
       final service = BiometricsServiceImpl(auth: mockAuth);
 
-      final enabled = await service.enableBiometricLogin(mockStorage);
+      final dynamic enabled = await service.enableBiometricLogin(mockStorage);
 
-      expect(enabled, isFalse);
+      expect(enabled is Map ? enabled['success'] : enabled, isFalse);
       expect(mockStorage.storage['biometric_enabled'], isNull);
       expect(deleteNativeKeyCalled, isTrue);
     });
