@@ -13,7 +13,10 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.security.keystore.UserNotAuthenticatedException
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -27,6 +30,7 @@ import javax.crypto.SecretKey
 class MainActivity: FlutterFragmentActivity() {
     private val BIOMETRIC_KEY_ALIAS = "eglobal_biometric_auth_key"
     private val BIOMETRIC_CHANNEL = "com.eglobal.wallet/biometric_key"
+    private var activeBiometricPrompt: BiometricPrompt? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +41,21 @@ class MainActivity: FlutterFragmentActivity() {
 
             createHighImportanceNotificationChannel()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cancelActiveBiometricPrompt()
+    }
+
+    // Note: Do NOT cancel activeBiometricPrompt on onStop/onPause because Android BiometricPrompt
+    // system UI overlay causes onPause/onStop on the host Activity!
+
+    private fun cancelActiveBiometricPrompt() {
+        try {
+            activeBiometricPrompt?.cancelAuthentication()
+            activeBiometricPrompt = null
+        } catch (_: Exception) {}
     }
 
     private fun createHighImportanceNotificationChannel() {
@@ -74,30 +93,17 @@ class MainActivity: FlutterFragmentActivity() {
             when (call.method) {
                 "createBiometricKey" -> {
                     try {
-                        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-                        if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
-                            keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
-                        }
-
-                        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-                        val builder = KeyGenParameterSpec.Builder(
-                            BIOMETRIC_KEY_ALIAS,
-                            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                        )
-                            .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                            .setUserAuthenticationRequired(true)
-
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            builder.setInvalidatedByBiometricEnrollment(true)
-                        }
-
-                        keyGenerator.init(builder.build())
-                        keyGenerator.generateKey()
+                        createKeystoreKey()
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("KEY_CREATION_FAILED", e.localizedMessage, null)
                     }
+                }
+                "authenticateWithCryptoObject" -> {
+                    val title = call.argument<String>("title") ?: "Biometric Authentication"
+                    val subtitle = call.argument<String>("subtitle") ?: "Authenticate to access E-Global Pay"
+                    val createIfMissing = call.argument<Boolean>("createIfMissing") ?: false
+                    authenticateWithCryptoObject(title, subtitle, createIfMissing, result)
                 }
                 "validateBiometricKey" -> {
                     try {
@@ -118,10 +124,7 @@ class MainActivity: FlutterFragmentActivity() {
                         result.success(true)
                     } catch (e: KeyPermanentlyInvalidatedException) {
                         // Biometric enrollment changed! KeyStore automatically invalidated key.
-                        try {
-                            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-                            keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
-                        } catch (_: Exception) {}
+                        deleteKeystoreKey()
                         result.success(false)
                     } catch (e: UserNotAuthenticatedException) {
                         // Key exists and is valid, but requires biometric auth
@@ -131,15 +134,12 @@ class MainActivity: FlutterFragmentActivity() {
                     }
                 }
                 "deleteBiometricKey" -> {
-                    try {
-                        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-                        if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
-                            keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
-                        }
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.success(false)
-                    }
+                    deleteKeystoreKey()
+                    result.success(true)
+                }
+                "cancelBiometricPrompt" -> {
+                    cancelActiveBiometricPrompt()
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
@@ -230,6 +230,148 @@ class MainActivity: FlutterFragmentActivity() {
                 result.notImplemented()
             }
         }
+    }
+
+    private fun authenticateWithCryptoObject(
+        title: String,
+        subtitle: String,
+        createIfMissing: Boolean,
+        methodResult: MethodChannel.Result
+    ) {
+        cancelActiveBiometricPrompt()
+
+        val biometricManager = BiometricManager.from(this)
+        val canAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
+            methodResult.success(mapOf("success" to false, "error" to "Biometrics not available or strong biometrics missing", "code" to "BIOMETRIC_UNAVAILABLE"))
+            return
+        }
+
+        val cipher: Cipher
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val keyExists = keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)
+
+            if (!keyExists) {
+                if (!createIfMissing) {
+                    methodResult.success(mapOf("success" to false, "error" to "Biometric key missing", "code" to "KEY_MISSING"))
+                    return
+                } else {
+                    createKeystoreKey()
+                }
+            }
+
+            val key = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
+            if (key == null) {
+                methodResult.success(mapOf("success" to false, "error" to "Biometric key missing", "code" to "KEY_MISSING"))
+                return
+            }
+
+            cipher = Cipher.getInstance("${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_CBC}/${KeyProperties.ENCRYPTION_PADDING_PKCS7}")
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+        } catch (e: KeyPermanentlyInvalidatedException) {
+            deleteKeystoreKey()
+            methodResult.success(mapOf("success" to false, "error" to "Biometric enrollment changed", "code" to "KEY_INVALIDATED"))
+            return
+        } catch (e: Exception) {
+            methodResult.success(mapOf("success" to false, "error" to e.localizedMessage, "code" to "KEY_INIT_FAILED"))
+            return
+        }
+
+        val cryptoObject = BiometricPrompt.CryptoObject(cipher)
+        val executor = ContextCompat.getMainExecutor(this)
+
+        var completed = false
+
+        val prompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(authResult: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(authResult)
+                if (completed) return
+                completed = true
+                activeBiometricPrompt = null
+
+                try {
+                    val authenticatedCipher = authResult.cryptoObject?.cipher
+                    if (authenticatedCipher != null) {
+                        // Execute cryptographic operation post-authentication to verify key participation
+                        authenticatedCipher.doFinal("eglobal_auth_payload".toByteArray(Charsets.UTF_8))
+                        methodResult.success(mapOf("success" to true))
+                    } else {
+                        methodResult.success(mapOf("success" to false, "error" to "CryptoObject missing", "code" to "CRYPTO_ERROR"))
+                    }
+                } catch (e: Exception) {
+                    methodResult.success(mapOf("success" to false, "error" to e.localizedMessage, "code" to "CRYPTO_EXECUTION_FAILED"))
+                }
+            }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                // Fingerprint not recognized: System prompt displays retry message.
+                // Do NOT mark completed or return failure so user can retry on native prompt.
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                if (completed) return
+                completed = true
+                activeBiometricPrompt = null
+
+                val codeStr = when (errorCode) {
+                    BiometricPrompt.ERROR_USER_CANCELED, BiometricPrompt.ERROR_NEGATIVE_BUTTON -> "USER_CANCELED"
+                    BiometricPrompt.ERROR_LOCKOUT, BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> "LOCKOUT"
+                    BiometricPrompt.ERROR_TIMEOUT -> "TIMEOUT"
+                    else -> "ERROR_$errorCode"
+                }
+                methodResult.success(mapOf("success" to false, "error" to errString.toString(), "code" to codeStr))
+            }
+        })
+
+        activeBiometricPrompt = prompt
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            .setNegativeButtonText("Cancel")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .build()
+
+        prompt.authenticate(promptInfo, cryptoObject)
+    }
+
+    private fun createKeystoreKey(): SecretKey {
+        deleteKeystoreKey()
+
+        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        val builder = KeyGenParameterSpec.Builder(
+            BIOMETRIC_KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+            .setUserAuthenticationRequired(true)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+        } else {
+            @Suppress("DEPRECATION")
+            builder.setUserAuthenticationValidityDurationSeconds(-1)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            builder.setInvalidatedByBiometricEnrollment(true)
+        }
+
+        keyGenerator.init(builder.build())
+        return keyGenerator.generateKey()
+    }
+
+    private fun deleteKeystoreKey() {
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
+                keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun saveFileToPublicDownloads(tempFilePath: String, fileName: String, mimeType: String): String? {
