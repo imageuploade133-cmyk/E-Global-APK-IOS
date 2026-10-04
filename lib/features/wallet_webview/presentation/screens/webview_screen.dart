@@ -1889,6 +1889,54 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                     );
 
                     controller.addJavaScriptHandler(
+                      handlerName: 'enableBiometricLogin',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected enableBiometricLogin from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final biometrics = ref.read(biometricServiceProvider);
+                        final secureStorage = ref.read(secureStorageProvider);
+                        return await biometrics.enableBiometricLogin(secureStorage);
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
+                      handlerName: 'disableBiometricLogin',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected disableBiometricLogin from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final biometrics = ref.read(biometricServiceProvider);
+                        final secureStorage = ref.read(secureStorageProvider);
+                        await biometrics.invalidateBiometricState(secureStorage);
+                        return true;
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
+                      handlerName: 'isBiometricLoginEnabled',
+                      callback: (args) async {
+                        if (!await _isCurrentUrlTrusted(controller)) {
+                          AppLogger.e(
+                            'Rejected isBiometricLoginEnabled from untrusted origin',
+                          );
+                          return false;
+                        }
+                        final biometrics = ref.read(biometricServiceProvider);
+                        final secureStorage = ref.read(secureStorageProvider);
+                        return await biometrics.validateBiometricEnrollment(
+                          secureStorage,
+                        );
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
                       handlerName: 'shareReceipt',
                       callback: (args) async {
                         if (!await _isCurrentUrlTrusted(controller)) {
