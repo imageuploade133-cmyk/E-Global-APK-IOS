@@ -7,17 +7,21 @@ abstract class BiometricsService {
   Future<bool> isBiometricsAvailable();
   Future<List<BiometricType>> getAvailableBiometrics();
   Future<bool> authenticate();
+  Future<bool> createBiometricCredential();
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
   Future<void> invalidateBiometricState(SecureStorageService secureStorage);
 }
 
 class BiometricsServiceImpl implements BiometricsService {
   final LocalAuthentication _auth;
+  final MethodChannel _biometricChannel;
 
-  static const String _biometricTokenKey = 'biometric_enrolled_token_v1';
-
-  BiometricsServiceImpl({LocalAuthentication? auth})
-      : _auth = auth ?? LocalAuthentication();
+  BiometricsServiceImpl({
+    LocalAuthentication? auth,
+    MethodChannel? biometricChannel,
+  })  : _auth = auth ?? LocalAuthentication(),
+        _biometricChannel =
+            biometricChannel ?? const MethodChannel('com.eglobal.wallet/biometric_key');
 
   @override
   Future<bool> isBiometricsAvailable() async {
@@ -58,14 +62,28 @@ class BiometricsServiceImpl implements BiometricsService {
   }
 
   @override
-  Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage) async {
+  Future<bool> createBiometricCredential() async {
+    try {
+      final bool created =
+          await _biometricChannel.invokeMethod<bool>('createBiometricKey') ??
+              false;
+      return created;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> validateBiometricEnrollment(
+      SecureStorageService secureStorage) async {
     final bool available = await isBiometricsAvailable();
     if (!available) {
       await invalidateBiometricState(secureStorage);
       return false;
     }
 
-    final String? isEnabledStr = await secureStorage.read(AppStrings.biometricKey);
+    final String? isEnabledStr =
+        await secureStorage.read(AppStrings.biometricKey);
     final bool isEnabled = isEnabledStr == 'true';
 
     if (!isEnabled) {
@@ -73,36 +91,29 @@ class BiometricsServiceImpl implements BiometricsService {
     }
 
     try {
-      final List<BiometricType> currentTypes = await getAvailableBiometrics();
-      final String currentSig = currentTypes.map((t) => t.name).join(',');
+      final bool isValidNativeKey = await _biometricChannel
+              .invokeMethod<bool>('validateBiometricKey') ??
+          false;
 
-      final String? storedToken = await secureStorage.read(_biometricTokenKey);
-
-      if (storedToken == null) {
-        // Initial token generation when biometric login is active
-        await secureStorage.write(_biometricTokenKey, 'valid_$currentSig');
-        return true;
-      }
-
-      if (storedToken != 'valid_$currentSig') {
-        // Biometric types or platform key changed
+      if (!isValidNativeKey) {
+        // Platform KeyStore / Keychain invalidated key because biometric enrollment changed
         await invalidateBiometricState(secureStorage);
         return false;
       }
 
       return true;
     } catch (e) {
-      // Platform security key invalidation (e.g. KeyPermanentlyInvalidatedException or Keychain invalidation)
       await invalidateBiometricState(secureStorage);
       return false;
     }
   }
 
   @override
-  Future<void> invalidateBiometricState(SecureStorageService secureStorage) async {
+  Future<void> invalidateBiometricState(
+      SecureStorageService secureStorage) async {
     try {
       await secureStorage.delete(AppStrings.biometricKey);
-      await secureStorage.delete(_biometricTokenKey);
+      await _biometricChannel.invokeMethod<bool>('deleteBiometricKey');
     } catch (_) {}
   }
 }
