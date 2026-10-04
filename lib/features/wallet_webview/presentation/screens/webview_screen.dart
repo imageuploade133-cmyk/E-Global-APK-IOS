@@ -1,3 +1,4 @@
+import 'package:local_auth/local_auth.dart';
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
@@ -1885,6 +1886,29 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         final secureStorage = ref.read(secureStorageProvider);
                         await secureStorage.delete(AppStrings.savedEmailKey);
                         AppLogger.i('Cleared remembered user email address');
+                      },
+                    );
+
+
+                    controller.addJavaScriptHandler(
+                      handlerName: 'triggerNativeBiometric',
+                      callback: (args) async {
+                        try {
+                          final LocalAuthentication auth = LocalAuthentication();
+                          final bool didAuthenticate = await auth.authenticate(
+                            localizedReason:
+                                'Hardware verification required. Only your enrolled device Fingerprint can unlock your account.',
+                            options: const AuthenticationOptions(
+                              biometricOnly: true,
+                              stickyAuth: true,
+                              useErrorDialogs: true,
+                            ),
+                          );
+                          return {'success': didAuthenticate, 'error': null};
+                        } catch (e) {
+                          AppLogger.e('triggerNativeBiometric exception: $e');
+                          return {'success': false, 'error': e.toString()};
+                        }
                       },
                     );
 
