@@ -33,6 +33,24 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    try {
+      ref.read(biometricServiceProvider).cancelBiometricPrompt();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      try {
+        ref.read(biometricServiceProvider).cancelBiometricPrompt();
+      } catch (_) {}
+    }
+  }
+
   Future<void> _checkAndAuthenticate() async {
     final biometricService = ref.read(biometricServiceProvider);
     final secureStorage = ref.read(secureStorageProvider);

@@ -82,6 +82,9 @@ void main() {
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': true};
+        }
         if (methodCall.method == 'createBiometricKey') {
           createKeyCalls++;
           return true;
@@ -113,6 +116,9 @@ void main() {
       const channel = MethodChannel('com.eglobal.wallet/biometric_key');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': true};
+        }
         if (methodCall.method == 'createBiometricKey') {
           return true;
         }
@@ -241,6 +247,40 @@ void main() {
       await service.cancelBiometricPrompt();
 
       expect(cancelCalled, isTrue);
+    });
+
+    test('9. Successful biometric login returns true', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': true};
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final result = await service.authenticate();
+      expect(result, isTrue);
+    });
+
+    test('10. Failed biometric login returns false', () async {
+      const channel = MethodChannel('com.eglobal.wallet/biometric_key');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
+        if (methodCall.method == 'authenticateWithCryptoObject') {
+          return <String, dynamic>{'success': false, 'error': 'Failed', 'code': 'AUTHENTICATION_FAILED'};
+        }
+        return null;
+      });
+
+      final mockAuth = MockLocalAuthentication();
+      final service = BiometricsServiceImpl(auth: mockAuth);
+
+      final result = await service.authenticate();
+      expect(result, isFalse);
     });
   });
 }
