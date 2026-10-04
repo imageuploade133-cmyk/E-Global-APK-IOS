@@ -6,6 +6,8 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/services/core_providers.dart';
 
+enum BiometricAuthState { idle, authenticating, success, error }
+
 class BiometricLoginScreen extends ConsumerStatefulWidget {
   const BiometricLoginScreen({super.key});
 
@@ -15,13 +17,12 @@ class BiometricLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
-  bool _isAuthenticating = false;
-  String? _errorMessage;
+  BiometricAuthState _authState = BiometricAuthState.idle;
+  String? _statusMessage;
 
   @override
   void initState() {
     super.initState();
-    // Dismiss splash screen and restore normal system UI
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
@@ -57,10 +58,11 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
   }
 
   Future<void> _authenticate() async {
-    if (_isAuthenticating) return;
+    if (_authState == BiometricAuthState.authenticating) return;
+
     setState(() {
-      _isAuthenticating = true;
-      _errorMessage = null;
+      _authState = BiometricAuthState.authenticating;
+      _statusMessage = 'Touch sensor to verify fingerprint';
     });
 
     final biometricService = ref.read(biometricServiceProvider);
@@ -70,8 +72,8 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
       onTimeout: () {
         if (mounted) {
           setState(() {
-            _isAuthenticating = false;
-            _errorMessage = 'Biometric authentication timed out. Please tap below to retry.';
+            _authState = BiometricAuthState.error;
+            _statusMessage = 'Biometric authentication timed out. Tap to retry.';
           });
         }
         return false;
@@ -80,22 +82,68 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
 
     if (!mounted) return;
 
-    setState(() {
-      _isAuthenticating = false;
-    });
-
     if (authenticated) {
-      Navigator.of(context).pushReplacementNamed('/webview');
-    } else {
+      HapticFeedback.mediumImpact();
       setState(() {
-        _errorMessage = 'Biometric authentication failed. Please try again.';
+        _authState = BiometricAuthState.success;
+        _statusMessage = 'Biometric verified! Unlocking...';
+      });
+
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/webview');
+      }
+    } else {
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _authState = BiometricAuthState.error;
+        _statusMessage = 'Biometric authentication failed. Tap below to retry.';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Biometric authentication failed. Please retry.'),
           backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
         ),
       );
+    }
+  }
+
+  Color get _iconColor {
+    switch (_authState) {
+      case BiometricAuthState.success:
+        return const Color(0xFF10B981); // Bright Green
+      case BiometricAuthState.error:
+        return const Color(0xFFEF4444); // Red
+      case BiometricAuthState.authenticating:
+        return AppColors.primary; // Brand Orange
+      case BiometricAuthState.idle:
+        return Colors.grey;
+    }
+  }
+
+  Color get _containerBgColor {
+    switch (_authState) {
+      case BiometricAuthState.success:
+        return const Color(0xFFD1FAE5); // Soft Green
+      case BiometricAuthState.error:
+        return const Color(0xFFFEE2E2); // Soft Red
+      case BiometricAuthState.authenticating:
+        return AppColors.primary.withAlpha(25);
+      case BiometricAuthState.idle:
+        return Colors.grey.withAlpha(25);
+    }
+  }
+
+  IconData get _statusIcon {
+    switch (_authState) {
+      case BiometricAuthState.success:
+        return Icons.check_circle_rounded;
+      case BiometricAuthState.error:
+        return Icons.error_rounded;
+      case BiometricAuthState.authenticating:
+      case BiometricAuthState.idle:
+        return Icons.fingerprint_rounded;
     }
   }
 
@@ -110,8 +158,8 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Image.asset('assets/images/logo.png', width: 120, height: 120),
-              const SizedBox(height: 32),
+              Image.asset('assets/images/logo.png', width: 100, height: 100),
+              const SizedBox(height: 24),
               const Text(
                 AppStrings.appName,
                 textAlign: TextAlign.center,
@@ -121,26 +169,65 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
                   color: AppColors.primary,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
               const Text(
-                'Secure Native Biometric Verification',
+                'Biometric App Unlock',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+                style: TextStyle(fontSize: 15, color: Colors.grey),
               ),
               const SizedBox(height: 48),
-              if (_errorMessage != null) ...[
-                Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.red,
-                    fontWeight: FontWeight.w500,
+
+              // Dynamic Visual Fingerprint Container
+              Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: _containerBgColor,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: _iconColor,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _iconColor.withAlpha(51),
+                        blurRadius: 16,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Icon(
+                      _statusIcon,
+                      size: 64,
+                      color: _iconColor,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 24),
-              ],
-              if (_isAuthenticating)
+              ),
+
+              const SizedBox(height: 32),
+
+              if (_statusMessage != null)
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: Text(
+                    _statusMessage!,
+                    key: ValueKey<String>(_statusMessage!),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _iconColor,
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 40),
+
+              if (_authState == BiometricAuthState.authenticating)
                 const Center(
                   child: CircularProgressIndicator(
                     valueColor: AlwaysStoppedAnimation<Color>(
@@ -148,21 +235,25 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
                     ),
                   ),
                 )
-              else
+              else if (_authState == BiometricAuthState.error ||
+                  _authState == BiometricAuthState.idle)
                 ElevatedButton.icon(
                   onPressed: _authenticate,
                   icon: const Icon(Icons.fingerprint, size: 28),
                   label: const Text(
-                    'Unlock with Biometrics',
+                    'Try Fingerprint Again',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: _authState == BiometricAuthState.error
+                        ? const Color(0xFFEF4444)
+                        : AppColors.primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                    elevation: 2,
                   ),
                 ),
             ],
