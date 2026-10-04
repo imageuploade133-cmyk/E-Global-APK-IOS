@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_native_splash/flutter_native_splash.dart';
-import 'package:wallet/core/constants/app_colors.dart';
-import 'package:wallet/core/constants/app_strings.dart';
-import 'package:wallet/core/services/core_providers.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_strings.dart';
+import '../../../../core/services/core_providers.dart';
 
 class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
   const PermissionsOnboardingScreen({super.key});
@@ -16,46 +16,37 @@ class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _PermissionsOnboardingScreenState
-    extends ConsumerState<PermissionsOnboardingScreen> with WidgetsBindingObserver {
+    extends ConsumerState<PermissionsOnboardingScreen> {
   bool _isRequesting = false;
-  static const String _onboardingCompletedKey = 'eglobal_permissions_onboarding_completed_v1';
   bool _checkingInitialState = true;
+  static const String _onboardingCompletedKey =
+      'eglobal_permissions_onboarding_completed_v1';
 
-  // List of all device permissions requested by E-Global Pay
-  final List<Permission> _permissions = [
+  final List<Permission> _requiredPermissions = [
     Permission.camera,
     Permission.microphone,
     Permission.locationWhenInUse,
     Permission.notification,
     Permission.contacts,
     Permission.photos,
-    Permission.storage,
   ];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkPermissionsAndProceed();
     });
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !_isRequesting) {
-      _checkPermissionsAndProceed();
-    }
-  }
-
   Future<bool> _areRequiredPermissionsGranted() async {
-    for (final perm in _permissions) {
+    for (final perm in <Permission>[
+      Permission.camera,
+      Permission.microphone,
+      Permission.locationWhenInUse,
+      Permission.storage,
+      Permission.photos,
+    ]) {
       final status = await perm.status;
       if (!(status.isGranted || status.isLimited || status.isRestricted)) {
         return false;
@@ -66,7 +57,8 @@ class _PermissionsOnboardingScreenState
 
   Future<void> _checkPermissionsAndProceed() async {
     final secureStorage = ref.read(secureStorageProvider);
-    final completed = await secureStorage.read(_onboardingCompletedKey) == 'true';
+    final completed =
+        await secureStorage.read(_onboardingCompletedKey) == 'true';
     final allGranted = await _areRequiredPermissionsGranted();
 
     // Once onboarding has been completed, never show this screen again.
@@ -94,11 +86,12 @@ class _PermissionsOnboardingScreenState
 
   Future<void> _requestAllPermissions() async {
     if (_isRequesting) return;
+
     setState(() {
       _isRequesting = true;
     });
 
-    for (final perm in _permissions) {
+    for (final perm in _requiredPermissions) {
       try {
         await perm.request();
       } catch (_) {
@@ -127,10 +120,14 @@ class _PermissionsOnboardingScreenState
       AppStrings.biometricKey,
     );
     final biometricEnabled = biometricEnabledStr == 'true';
-    final hasBiometrics = await biometrics.isBiometricsAvailable();
+    bool isValidBiometric = false;
+    if (biometricEnabled) {
+      isValidBiometric =
+          await biometrics.validateBiometricEnrollment(secureStorage);
+    }
 
     if (mounted) {
-      if (biometricEnabled && hasBiometrics) {
+      if (biometricEnabled && isValidBiometric) {
         Navigator.of(context).pushReplacementNamed('/biometric_login');
       } else {
         Navigator.of(context).pushReplacementNamed('/webview');

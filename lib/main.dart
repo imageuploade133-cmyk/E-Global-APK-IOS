@@ -11,11 +11,13 @@ import 'core/utils/logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'core/services/core_providers.dart';
+import 'core/constants/app_strings.dart';
+import 'core/security/biometrics_service.dart';
+import 'core/security/secure_storage_service.dart';
 import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
 import 'features/auth/presentation/screens/biometric_login_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
 import 'features/security/developer_mode_screen.dart';
-import 'core/security/secure_storage_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -124,9 +126,24 @@ void main() async {
     }
 
     if (completed || requiredPermissionsGranted) {
-      initialRoute = '/webview';
       if (!completed && requiredPermissionsGranted) {
         await storage.write(onboardingKey, 'true');
+      }
+
+      final biometricEnabledStr = await storage.read(AppStrings.biometricKey);
+      final biometricEnabled = biometricEnabledStr == 'true';
+
+      if (biometricEnabled) {
+        final biometrics = BiometricsServiceImpl();
+        final isValidBiometric =
+            await biometrics.validateBiometricEnrollment(storage);
+        if (isValidBiometric) {
+          initialRoute = '/biometric_login';
+        } else {
+          initialRoute = '/webview';
+        }
+      } else {
+        initialRoute = '/webview';
       }
     }
   } catch (e) {

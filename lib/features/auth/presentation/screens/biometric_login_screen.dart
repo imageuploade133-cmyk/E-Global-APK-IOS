@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wallet/core/constants/app_colors.dart';
-import 'package:wallet/core/constants/app_strings.dart';
-import 'package:wallet/core/services/core_providers.dart';
+import '../../../../core/constants/app_colors.dart';
+import '../../../../core/constants/app_strings.dart';
+import '../../../../core/services/core_providers.dart';
 
 class BiometricLoginScreen extends ConsumerStatefulWidget {
   const BiometricLoginScreen({super.key});
@@ -16,6 +16,7 @@ class BiometricLoginScreen extends ConsumerStatefulWidget {
 
 class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
   bool _isAuthenticating = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -27,54 +28,74 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
     );
     FlutterNativeSplash.remove();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _authenticate();
+      _checkAndAuthenticate();
     });
+  }
+
+  Future<void> _checkAndAuthenticate() async {
+    final biometricService = ref.read(biometricServiceProvider);
+    final secureStorage = ref.read(secureStorageProvider);
+
+    final isValid =
+        await biometricService.validateBiometricEnrollment(secureStorage);
+    if (!isValid) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Biometric enrollment changed or unavailable. Please login using standard credentials.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        Navigator.of(context).pushReplacementNamed('/webview');
+      }
+      return;
+    }
+
+    _authenticate();
   }
 
   Future<void> _authenticate() async {
     if (_isAuthenticating) return;
     setState(() {
       _isAuthenticating = true;
+      _errorMessage = null;
     });
 
     final biometricService = ref.read(biometricServiceProvider);
-    
-    // Use withTimeout to prevent hanging on slow biometric sensors
+
     final authenticated = await biometricService.authenticate().timeout(
       const Duration(seconds: 30),
       onTimeout: () {
-        setState(() {
-          _isAuthenticating = false;
-        });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Biometric authentication timed out. Please retry.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          setState(() {
+            _isAuthenticating = false;
+            _errorMessage = 'Biometric authentication timed out. Please tap below to retry.';
+          });
         }
         return false;
       },
     );
+
+    if (!mounted) return;
 
     setState(() {
       _isAuthenticating = false;
     });
 
     if (authenticated) {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/webview');
-      }
+      Navigator.of(context).pushReplacementNamed('/webview');
     } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Biometric authentication failed. Please retry.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      setState(() {
+        _errorMessage = 'Biometric authentication failed. Please try again.';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Biometric authentication failed. Please retry.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -102,11 +123,23 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'Secure Access Verification',
+                'Secure Native Biometric Verification',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
-              const SizedBox(height: 64),
+              const SizedBox(height: 48),
+              if (_errorMessage != null) ...[
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.red,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
               if (_isAuthenticating)
                 const Center(
                   child: CircularProgressIndicator(
@@ -132,20 +165,6 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () {
-                  // Fallback bypass for users to enter web view safely (e.g. they can still login manually in web interface)
-                  Navigator.of(context).pushReplacementNamed('/webview');
-                },
-                child: const Text(
-                  'Use Password Fallback',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
             ],
           ),
         ),
