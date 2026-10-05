@@ -70,8 +70,8 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(true)
                 }
                 "authenticateWithCryptoObject" -> {
-                    val title = call.argument<String>("title") ?: "Biometric Authentication"
-                    val subtitle = call.argument<String>("subtitle") ?: "Authenticate to access E-Global Pay"
+                    val title = call.argument<String>("title") ?: "Your Fingerprint"
+                    val subtitle = call.argument<String>("subtitle") ?: "Scan your enrolled fingerprint or face to verify your identity"
                     val createIfMissing = call.argument<Boolean>("createIfMissing") ?: true
                     authenticateWithCryptoObject(title, subtitle, createIfMissing, result)
                 }
@@ -164,7 +164,15 @@ class MainActivity : FlutterFragmentActivity() {
         val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK
         val canAuth = biometricManager.canAuthenticate(authenticators)
         if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
-            methodResult.success(mapOf("success" to false, "error" to "Biometrics not available on device", "code" to "BIOMETRIC_UNAVAILABLE"))
+            val (errMsg, errCode) = when (canAuth) {
+                BiometricManager.BIOMETRIC_ERROR_LOCKOUT, BiometricManager.BIOMETRIC_ERROR_LOCKOUT_PERMANENT ->
+                    Pair("Too many attempts. Please try again later.", "LOCKOUT")
+                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ->
+                    Pair("No biometrics enrolled on this device.", "NONE_ENROLLED")
+                else ->
+                    Pair("Biometrics not available on device.", "BIOMETRIC_UNAVAILABLE")
+            }
+            methodResult.success(mapOf("success" to false, "error" to errMsg, "code" to errCode))
             return
         }
 
@@ -212,13 +220,13 @@ class MainActivity : FlutterFragmentActivity() {
                 completed = true
                 activeBiometricPrompt = null
 
-                val codeStr = when (errorCode) {
-                    BiometricPrompt.ERROR_USER_CANCELED, BiometricPrompt.ERROR_NEGATIVE_BUTTON -> "USER_CANCELED"
-                    BiometricPrompt.ERROR_LOCKOUT, BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> "LOCKOUT"
-                    BiometricPrompt.ERROR_TIMEOUT -> "TIMEOUT"
-                    else -> "ERROR_$errorCode"
+                val (codeStr, messageStr) = when (errorCode) {
+                    BiometricPrompt.ERROR_USER_CANCELED, BiometricPrompt.ERROR_NEGATIVE_BUTTON -> Pair("USER_CANCELED", errString.toString())
+                    BiometricPrompt.ERROR_LOCKOUT, BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> Pair("LOCKOUT", "Too many attempts. Please try again later.")
+                    BiometricPrompt.ERROR_TIMEOUT -> Pair("TIMEOUT", errString.toString())
+                    else -> Pair("ERROR_$errorCode", errString.toString())
                 }
-                methodResult.success(mapOf("success" to false, "error" to errString.toString(), "code" to codeStr))
+                methodResult.success(mapOf("success" to false, "error" to messageStr, "code" to codeStr))
             }
         })
 

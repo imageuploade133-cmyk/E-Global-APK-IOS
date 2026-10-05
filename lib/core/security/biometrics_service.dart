@@ -7,6 +7,7 @@ abstract class BiometricsService {
   Future<bool> isBiometricsAvailable();
   Future<List<BiometricType>> getAvailableBiometrics();
   Future<bool> authenticate({String title, String subtitle, bool createIfMissing});
+  Future<Map<String, dynamic>> authenticateWithResult({String title, String subtitle, bool createIfMissing});
   Future<bool> createBiometricCredential();
   Future<bool> enableBiometricLogin(SecureStorageService secureStorage);
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
@@ -50,7 +51,7 @@ class BiometricsServiceImpl implements BiometricsService {
   }
 
   @override
-  Future<bool> authenticate({
+  Future<Map<String, dynamic>> authenticateWithResult({
     String title = 'Your Fingerprint',
     String subtitle = 'Scan your enrolled biometric credential to verify your identity',
     bool createIfMissing = true,
@@ -73,27 +74,50 @@ class BiometricsServiceImpl implements BiometricsService {
       );
 
       if (res != null) {
-        // Explicit response received from native Android KeyStore / BiometricPrompt
         final bool success = res['success'] == true;
+        final String? error = res['error']?.toString();
         final String? code = res['code']?.toString();
-        
-        // If native prompt was displayed and succeeded or user explicitly cancelled/locked out, return immediately
-        if (success || code == 'USER_CANCELED' || code == 'LOCKOUT' || code == 'TIMEOUT') {
-          return success;
+
+        if (success || code == 'USER_CANCELED' || code == 'LOCKOUT' || code == 'TIMEOUT' || code == 'NONE_ENROLLED') {
+          return {
+            'success': success,
+            'error': error,
+            'code': code,
+          };
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      // Fallback
+    }
 
-    // Fallback directly to local_auth package ONLY if KeyStore native channel threw an unexpected exception
     try {
-      return await _auth.authenticate(
+      final bool didAuth = await _auth.authenticate(
         localizedReason: title,
         biometricOnly: true,
         persistAcrossBackgrounding: true,
       );
-    } catch (_) {
-      return false;
+      return {'success': didAuth, 'error': null, 'code': didAuth ? 'SUCCESS' : 'USER_CANCELED'};
+    } catch (e) {
+      final String errStr = e.toString();
+      if (errStr.toLowerCase().contains('lockout') || errStr.toLowerCase().contains('too many')) {
+        return {'success': false, 'error': 'Too many attempts. Please try again later.', 'code': 'LOCKOUT'};
+      }
+      return {'success': false, 'error': errStr, 'code': 'ERROR'};
     }
+  }
+
+  @override
+  Future<bool> authenticate({
+    String title = 'Your Fingerprint',
+    String subtitle = 'Scan your enrolled biometric credential to verify your identity',
+    bool createIfMissing = true,
+  }) async {
+    final res = await authenticateWithResult(
+      title: title,
+      subtitle: subtitle,
+      createIfMissing: createIfMissing,
+    );
+    return res['success'] == true;
   }
 
   @override

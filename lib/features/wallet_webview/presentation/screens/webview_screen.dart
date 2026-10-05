@@ -1894,15 +1894,24 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                       handlerName: 'triggerNativeBiometric',
                       callback: (args) async {
                         try {
+                          final connectivity = ref.read(connectivityServiceProvider);
+                          final bool isConnected = await connectivity.isConnected;
+                          if (!isConnected) {
+                            return {
+                              'success': false,
+                              'error': 'Internet connection required to verify biometrics and log in.',
+                              'code': 'OFFLINE'
+                            };
+                          }
                           final biometrics = ref.read(biometricServiceProvider);
-                          final bool didAuthenticate = await biometrics.authenticate(
+                          final res = await biometrics.authenticateWithResult(
                             title: 'Your Fingerprint',
                             subtitle: 'Scan your enrolled fingerprint or face to verify your identity',
                           );
-                          return {'success': didAuthenticate, 'error': null};
+                          return res;
                         } catch (e) {
                           AppLogger.e('triggerNativeBiometric exception: $e');
-                          return {'success': false, 'error': e.toString()};
+                          return {'success': false, 'error': e.toString(), 'code': 'EXCEPTION'};
                         }
                       },
                     );
