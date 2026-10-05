@@ -1891,6 +1891,14 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
 
 
                     controller.addJavaScriptHandler(
+                      handlerName: 'getBiometricType',
+                      callback: (args) async {
+                        final biometrics = ref.read(biometricServiceProvider);
+                        return await biometrics.getPrimaryBiometricType();
+                      },
+                    );
+
+                    controller.addJavaScriptHandler(
                       handlerName: 'triggerNativeBiometric',
                       callback: (args) async {
                         try {

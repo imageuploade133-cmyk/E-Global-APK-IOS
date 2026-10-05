@@ -6,6 +6,7 @@ import '../constants/app_strings.dart';
 abstract class BiometricsService {
   Future<bool> isBiometricsAvailable();
   Future<List<BiometricType>> getAvailableBiometrics();
+  Future<String> getPrimaryBiometricType();
   Future<bool> authenticate({String title, String subtitle, bool createIfMissing});
   Future<Map<String, dynamic>> authenticateWithResult({String title, String subtitle, bool createIfMissing});
   Future<bool> createBiometricCredential();
@@ -51,18 +52,33 @@ class BiometricsServiceImpl implements BiometricsService {
   }
 
   @override
+  Future<String> getPrimaryBiometricType() async {
+    final List<BiometricType> types = await getAvailableBiometrics();
+    if (types.contains(BiometricType.face)) {
+      return 'faceid';
+    }
+    return 'fingerprint';
+  }
+
+  @override
   Future<Map<String, dynamic>> authenticateWithResult({
-    String title = 'Your Fingerprint',
-    String subtitle = 'Scan your enrolled biometric credential to verify your identity',
+    String? title,
+    String? subtitle,
     bool createIfMissing = true,
   }) async {
+    final String type = await getPrimaryBiometricType();
+    final String resolvedTitle = title ?? (type == 'faceid' ? 'Face ID Verification' : 'Your Fingerprint');
+    final String resolvedSubtitle = subtitle ?? (type == 'faceid' 
+        ? 'Scan your face to verify your identity' 
+        : 'Touch fingerprint sensor or move finger across scanner');
+
     try {
       final Map<dynamic, dynamic>? res =
           await _biometricChannel.invokeMethod<Map<dynamic, dynamic>>(
         'authenticateWithCryptoObject',
         <String, dynamic>{
-          'title': title,
-          'subtitle': subtitle,
+          'title': resolvedTitle,
+          'subtitle': resolvedSubtitle,
           'createIfMissing': createIfMissing,
         },
       ).timeout(
@@ -86,13 +102,11 @@ class BiometricsServiceImpl implements BiometricsService {
           };
         }
       }
-    } catch (e) {
-      // Fallback
-    }
+    } catch (_) {}
 
     try {
       final bool didAuth = await _auth.authenticate(
-        localizedReason: title,
+        localizedReason: resolvedTitle,
         biometricOnly: true,
         persistAcrossBackgrounding: true,
       );
@@ -108,8 +122,8 @@ class BiometricsServiceImpl implements BiometricsService {
 
   @override
   Future<bool> authenticate({
-    String title = 'Your Fingerprint',
-    String subtitle = 'Scan your enrolled biometric credential to verify your identity',
+    String? title,
+    String? subtitle,
     bool createIfMissing = true,
   }) async {
     final res = await authenticateWithResult(
@@ -147,8 +161,6 @@ class BiometricsServiceImpl implements BiometricsService {
     }
 
     final bool authenticated = await authenticate(
-      title: 'Your Fingerprint',
-      subtitle: 'Scan your enrolled biometric credential to complete enrollment',
       createIfMissing: true,
     );
 
