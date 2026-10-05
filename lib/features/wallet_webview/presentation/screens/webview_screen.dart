@@ -1896,8 +1896,8 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                         try {
                           final biometrics = ref.read(biometricServiceProvider);
                           final bool didAuthenticate = await biometrics.authenticate(
-                            title: 'Hardware verification required',
-                            subtitle: 'Only your enrolled device Fingerprint can unlock your account.',
+                            title: 'Your Fingerprint',
+                            subtitle: 'Scan your enrolled fingerprint or face to verify your identity',
                           );
                           return {'success': didAuthenticate, 'error': null};
                         } catch (e) {

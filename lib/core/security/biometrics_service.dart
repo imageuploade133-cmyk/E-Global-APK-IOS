@@ -51,8 +51,8 @@ class BiometricsServiceImpl implements BiometricsService {
 
   @override
   Future<bool> authenticate({
-    String title = 'Biometric Authentication',
-    String subtitle = 'Authenticate to access E-Global Pay',
+    String title = 'Your Fingerprint',
+    String subtitle = 'Scan your enrolled biometric credential to verify your identity',
     bool createIfMissing = true,
   }) async {
     try {
@@ -72,15 +72,22 @@ class BiometricsServiceImpl implements BiometricsService {
         },
       );
 
-      if (res?['success'] == true) {
-        return true;
+      if (res != null) {
+        // Explicit response received from native Android KeyStore / BiometricPrompt
+        final bool success = res['success'] == true;
+        final String? code = res['code']?.toString();
+        
+        // If native prompt was displayed and succeeded or user explicitly cancelled/locked out, return immediately
+        if (success || code == 'USER_CANCELED' || code == 'LOCKOUT' || code == 'TIMEOUT') {
+          return success;
+        }
       }
     } catch (_) {}
 
-    // Fallback directly to local_auth package which triggers the native OS BiometricPrompt dialog
+    // Fallback directly to local_auth package ONLY if KeyStore native channel threw an unexpected exception
     try {
       return await _auth.authenticate(
-        localizedReason: '$title: $subtitle',
+        localizedReason: title,
         biometricOnly: true,
         persistAcrossBackgrounding: true,
       );
@@ -116,8 +123,8 @@ class BiometricsServiceImpl implements BiometricsService {
     }
 
     final bool authenticated = await authenticate(
-      title: 'Enable Biometric Login',
-      subtitle: 'Scan your biometric credential to complete enrollment',
+      title: 'Your Fingerprint',
+      subtitle: 'Scan your enrolled biometric credential to complete enrollment',
       createIfMissing: true,
     );
 
