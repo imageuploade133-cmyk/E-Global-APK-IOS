@@ -165,7 +165,7 @@ class MainActivity : FlutterFragmentActivity() {
         val canAuth = biometricManager.canAuthenticate(authenticators)
         if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
             val (errMsg, errCode) = when (canAuth) {
-                BiometricManager.BIOMETRIC_ERROR_LOCKOUT, BiometricManager.BIOMETRIC_ERROR_LOCKOUT_PERMANENT ->
+                BiometricPrompt.ERROR_LOCKOUT, BiometricPrompt.ERROR_LOCKOUT_PERMANENT ->
                     Pair("Too many attempts. Please try again later.", "LOCKOUT")
                 BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED ->
                     Pair("No biometrics enrolled on this device.", "NONE_ENROLLED")
