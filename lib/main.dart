@@ -11,11 +11,8 @@ import 'core/utils/logger.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'core/services/core_providers.dart';
-import 'core/constants/app_strings.dart';
-import 'core/security/biometrics_service.dart';
 import 'core/security/secure_storage_service.dart';
 import 'features/auth/presentation/screens/permissions_onboarding_screen.dart';
-import 'features/auth/presentation/screens/biometric_login_screen.dart';
 import 'features/wallet_webview/presentation/screens/webview_screen.dart';
 import 'features/security/developer_mode_screen.dart';
 
@@ -225,7 +222,6 @@ class _EGlobalWalletAppState extends ConsumerState<EGlobalWalletApp>
       routes: {
         '/webview': (context) => const WebviewScreen(),
         '/permissions': (context) => const PermissionsOnboardingScreen(),
-        '/biometric_login': (context) => const BiometricLoginScreen(),
       },
     );
   }
