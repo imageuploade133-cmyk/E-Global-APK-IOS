@@ -130,21 +130,7 @@ void main() async {
         await storage.write(onboardingKey, 'true');
       }
 
-      final biometricEnabledStr = await storage.read(AppStrings.biometricKey);
-      final biometricEnabled = biometricEnabledStr == 'true';
-
-      if (biometricEnabled) {
-        final biometrics = BiometricsServiceImpl();
-        final isValidBiometric =
-            await biometrics.validateBiometricEnrollment(storage);
-        if (isValidBiometric) {
-          initialRoute = '/biometric_login';
-        } else {
-          initialRoute = '/webview';
-        }
-      } else {
-        initialRoute = '/webview';
-      }
+      initialRoute = '/webview';
     }
   } catch (e) {
     AppLogger.e('Failed to read permissions onboarding state; using safe fallback.', e);

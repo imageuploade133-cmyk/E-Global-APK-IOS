@@ -127,11 +127,7 @@ class _PermissionsOnboardingScreenState
     }
 
     if (mounted) {
-      if (biometricEnabled && isValidBiometric) {
-        Navigator.of(context).pushReplacementNamed('/biometric_login');
-      } else {
-        Navigator.of(context).pushReplacementNamed('/webview');
-      }
+      Navigator.of(context).pushReplacementNamed('/webview');
     }
   }
 
