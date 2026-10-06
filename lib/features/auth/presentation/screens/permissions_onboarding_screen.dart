@@ -4,7 +4,6 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../../../core/constants/app_strings.dart';
 import '../../../../core/services/core_providers.dart';
 
 class PermissionsOnboardingScreen extends ConsumerStatefulWidget {
@@ -113,25 +112,8 @@ class _PermissionsOnboardingScreenState
   }
 
   Future<void> _proceedToApp() async {
-    final secureStorage = ref.read(secureStorageProvider);
-    final biometrics = ref.read(biometricServiceProvider);
-
-    final biometricEnabledStr = await secureStorage.read(
-      AppStrings.biometricKey,
-    );
-    final biometricEnabled = biometricEnabledStr == 'true';
-    bool isValidBiometric = false;
-    if (biometricEnabled) {
-      isValidBiometric =
-          await biometrics.validateBiometricEnrollment(secureStorage);
-    }
-
     if (mounted) {
-      if (biometricEnabled && isValidBiometric) {
-        Navigator.of(context).pushReplacementNamed('/biometric_login');
-      } else {
-        Navigator.of(context).pushReplacementNamed('/webview');
-      }
+      Navigator.of(context).pushReplacementNamed('/webview');
     }
   }
 

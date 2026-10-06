@@ -1,4 +1,3 @@
-import 'package:local_auth/local_auth.dart';
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
