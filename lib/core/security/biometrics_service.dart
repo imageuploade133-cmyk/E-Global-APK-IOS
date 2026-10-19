@@ -7,8 +7,8 @@ abstract class BiometricsService {
   Future<bool> isBiometricsAvailable();
   Future<List<BiometricType>> getAvailableBiometrics();
   Future<String> getPrimaryBiometricType();
-  Future<bool> authenticate({String title, String subtitle, bool createIfMissing});
-  Future<Map<String, dynamic>> authenticateWithResult({String title, String subtitle, bool createIfMissing});
+  Future<bool> authenticate({String? title, String? subtitle, bool createIfMissing = false});
+  Future<Map<String, dynamic>> authenticateWithResult({String? title, String? subtitle, bool createIfMissing = false});
   Future<bool> createBiometricCredential();
   Future<bool> enableBiometricLogin(SecureStorageService secureStorage);
   Future<bool> validateBiometricEnrollment(SecureStorageService secureStorage);
@@ -64,7 +64,7 @@ class BiometricsServiceImpl implements BiometricsService {
   Future<Map<String, dynamic>> authenticateWithResult({
     String? title,
     String? subtitle,
-    bool createIfMissing = true,
+    bool createIfMissing = false,
   }) async {
     final String type = await getPrimaryBiometricType();
     final String resolvedTitle = title ?? (type == 'faceid' ? 'Face ID Verification' : 'Your Fingerprint');
@@ -94,13 +94,11 @@ class BiometricsServiceImpl implements BiometricsService {
         final String? error = res['error']?.toString();
         final String? code = res['code']?.toString();
 
-        if (success || code == 'USER_CANCELED' || code == 'LOCKOUT' || code == 'TIMEOUT' || code == 'NONE_ENROLLED') {
-          return {
-            'success': success,
-            'error': error,
-            'code': code,
-          };
-        }
+        return {
+          'success': success,
+          'error': error,
+          'code': code ?? (success ? 'SUCCESS' : 'AUTHENTICATION_FAILED'),
+        };
       }
     } catch (_) {}
 
@@ -124,7 +122,7 @@ class BiometricsServiceImpl implements BiometricsService {
   Future<bool> authenticate({
     String? title,
     String? subtitle,
-    bool createIfMissing = true,
+    bool createIfMissing = false,
   }) async {
     final res = await authenticateWithResult(
       title: title,
