@@ -1,4 +1,3 @@
-import 'package:local_auth/local_auth.dart';
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
@@ -859,6 +858,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String _sanitizeStringForDisplayOrShare(String input) {
     var result = input;
     result = result.replaceAll(AppStrings.baseUrl, '');
+    result = result.replaceAll('https://eglobalpayfram.emakemrnd.com.ng/', '');
+    result = result.replaceAll('https://eglobalpayfram.emakemrnd.com.ng', '');
+    result = result.replaceAll('eglobalpayfram.emakemrnd.com.ng', '');
+    result = result.replaceAll('emakemrnd.com.ng', '');
     result = result.replaceAll('https://e-global-197077.vercel.app/', '');
     result = result.replaceAll('https://e-global-197077.vercel.app', '');
     result = result.replaceAll('e-global-197077.vercel.app', '');
@@ -1071,6 +1074,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
             try {
               if (document.title && (
                 document.title.includes('e-global') ||
+                document.title.includes('emakemrnd') ||
                 document.title.includes('vercel.app') ||
                 document.title.includes('localhost') ||
                 document.title.includes('net::ERR') ||
@@ -1082,8 +1086,10 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               var scrubber = function(node) {
                 if (node.nodeType === 3 && node.nodeValue) {
                   var v = node.nodeValue;
-                  if (v.includes('e-global-197077.vercel.app') || v.includes('localhost:8080') || v.includes('net::ERR_')) {
+                  if (v.includes('eglobalpayfram.emakemrnd.com.ng') || v.includes('emakemrnd.com.ng') || v.includes('e-global-197077.vercel.app') || v.includes('localhost:8080') || v.includes('net::ERR_')) {
                     node.nodeValue = v.replace(/https?:\\/\\/[^\\s"']+/g, '')
+                                      .replace(/eglobalpayfram\\.emakemrnd\\.com\\.ng/g, '')
+                                      .replace(/emakemrnd\\.com\\.ng/g, '')
                                       .replace(/e-global-197077\\.vercel\\.app/g, '')
                                       .replace(/localhost:8080/g, '')
                                       .replace(/net::ERR_[A-Z_]+/g, '');
@@ -1192,6 +1198,7 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
                             try {
                               if (document.title && (
                                 document.title.includes('e-global') ||
+                                document.title.includes('emakemrnd') ||
                                 document.title.includes('vercel.app') ||
                                 document.title.includes('localhost') ||
                                 document.title.includes('net::ERR') ||

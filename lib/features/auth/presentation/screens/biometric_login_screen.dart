@@ -64,7 +64,7 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Biometric enrollment changed or unavailable. Please login using standard credentials.',
+              'Fingerprint enrollment changed or unavailable. Please login using standard credentials.',
             ),
             backgroundColor: Colors.orange,
           ),
@@ -93,7 +93,7 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
         if (mounted) {
           setState(() {
             _authState = BiometricAuthState.error;
-            _statusMessage = 'Biometric authentication timed out. Tap to retry.';
+            _statusMessage = 'Fingerprint authentication timed out. Tap to retry.';
           });
         }
         return false;
@@ -106,7 +106,7 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
       HapticFeedback.mediumImpact();
       setState(() {
         _authState = BiometricAuthState.success;
-        _statusMessage = 'Biometric verified! Unlocking...';
+        _statusMessage = 'Fingerprint verified! Unlocking...';
       });
 
       await Future<void>.delayed(const Duration(milliseconds: 600));
@@ -117,11 +117,11 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
       HapticFeedback.heavyImpact();
       setState(() {
         _authState = BiometricAuthState.error;
-        _statusMessage = 'Biometric authentication failed. Tap below to retry.';
+        _statusMessage = 'Fingerprint authentication failed. Tap below to retry.';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Biometric authentication failed. Please retry.'),
+          content: Text('Fingerprint authentication failed. Please retry.'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 2),
         ),
@@ -178,20 +178,20 @@ class _BiometricLoginScreenState extends ConsumerState<BiometricLoginScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Image.asset('assets/images/logo.png', width: 100, height: 100),
-              const SizedBox(height: 24),
+              Image.asset('assets/images/logo.png', width: 52, height: 52),
+              const SizedBox(height: 16),
               const Text(
                 AppStrings.appName,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 26,
+                  fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: AppColors.primary,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Text(
-                'Biometric App Unlock',
+                'Fingerprint App Unlock',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, color: Colors.grey),
               ),
