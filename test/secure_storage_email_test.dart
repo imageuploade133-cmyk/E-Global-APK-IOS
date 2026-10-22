@@ -9,13 +9,13 @@ void main() {
   test('AppStrings.isTrustedWalletOrigin validates URLs correctly', () {
     expect(
       AppStrings.isTrustedWalletOrigin(
-        Uri.parse('https://eglobalpayfram.emakemrnd.com.ng/login'),
+        Uri.parse('https://e-global-tech-kano.vercel.app/login'),
       ),
       isTrue,
     );
     expect(
       AppStrings.isTrustedWalletOrigin(
-        Uri.parse('http://eglobalpayfram.emakemrnd.com.ng/login'),
+        Uri.parse('http://e-global-tech-kano.vercel.app/login'),
       ),
       isFalse,
     );
