@@ -858,6 +858,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
   String _sanitizeStringForDisplayOrShare(String input) {
     var result = input;
     result = result.replaceAll(AppStrings.baseUrl, '');
+    result = result.replaceAll('https://e-global-tech-kano.vercel.app/', '');
+    result = result.replaceAll('https://e-global-tech-kano.vercel.app', '');
+    result = result.replaceAll('e-global-tech-kano.vercel.app', '');
     result = result.replaceAll('https://eglobalpayfram.emakemrnd.com.ng/', '');
     result = result.replaceAll('https://eglobalpayfram.emakemrnd.com.ng', '');
     result = result.replaceAll('eglobalpayfram.emakemrnd.com.ng', '');
@@ -1086,8 +1089,9 @@ class _WebviewScreenState extends ConsumerState<WebviewScreen>
               var scrubber = function(node) {
                 if (node.nodeType === 3 && node.nodeValue) {
                   var v = node.nodeValue;
-                  if (v.includes('eglobalpayfram.emakemrnd.com.ng') || v.includes('emakemrnd.com.ng') || v.includes('e-global-197077.vercel.app') || v.includes('localhost:8080') || v.includes('net::ERR_')) {
+                  if (v.includes('e-global-tech-kano.vercel.app') || v.includes('eglobalpayfram.emakemrnd.com.ng') || v.includes('emakemrnd.com.ng') || v.includes('e-global-197077.vercel.app') || v.includes('localhost:8080') || v.includes('net::ERR_')) {
                     node.nodeValue = v.replace(/https?:\\/\\/[^\\s"']+/g, '')
+                                      .replace(/e-global-tech-kano\\.vercel\\.app/g, '')
                                       .replace(/eglobalpayfram\\.emakemrnd\\.com\\.ng/g, '')
                                       .replace(/emakemrnd\\.com\\.ng/g, '')
                                       .replace(/e-global-197077\\.vercel\\.app/g, '')
